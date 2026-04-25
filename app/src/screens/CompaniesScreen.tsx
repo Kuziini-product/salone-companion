@@ -7,11 +7,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { EmptyState } from '../components/EmptyState';
+import { BrandLogo } from '../components/BrandLogo';
 import { supabase } from '../lib/supabase';
+import { countryFlagEmoji } from '../lib/brandHelpers';
 
 interface Company {
   id: string; name: string; hall: string | null; stand: string | null;
-  city: string | null; country: string | null;
+  city: string | null; country: string | null; website: string | null;
 }
 
 const PAGE_SIZE = 50;
@@ -37,7 +39,7 @@ export function CompaniesScreen() {
   const buildQuery = useCallback((from: number, to: number) => {
     let q = supabase
       .from('companies')
-      .select('id, name, hall, stand, city, country', { count: 'exact' })
+      .select('id, name, hall, stand, city, country, website', { count: 'exact' })
       .order('name')
       .range(from, to);
     if (query) {
@@ -120,31 +122,39 @@ export function CompaniesScreen() {
               <Text style={[styles.footer, { color: palette.textFaint }]}>Asta-i tot.</Text>
             ) : null
           }
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() => nav.navigate('CompanyCard', { companyId: item.id })}
-              style={({ pressed }) => [
-                styles.row,
-                { backgroundColor: palette.bgElevated, borderColor: palette.border },
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <View style={[styles.bullet, { backgroundColor: accents.companies.soft }]}>
-                <Text style={[styles.bulletText, { color: accents.companies.deep }]}>
-                  {item.name[0].toUpperCase()}
-                </Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>{item.name}</Text>
-                <Text style={[styles.meta, { color: palette.textDim }]} numberOfLines={1}>
-                  {[
-                    [item.hall, item.stand].filter(Boolean).join(' '),
-                    [item.city, item.country].filter(Boolean).join(', '),
-                  ].filter(Boolean).join('  ·  ') || '—'}
-                </Text>
-              </View>
-            </Pressable>
-          )}
+          renderItem={({ item }) => {
+            const flag = countryFlagEmoji(item.country);
+            return (
+              <Pressable
+                onPress={() => nav.navigate('CompanyCard', { companyId: item.id })}
+                style={({ pressed }) => [
+                  styles.row,
+                  { backgroundColor: palette.bgElevated, borderColor: palette.border },
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <BrandLogo
+                  website={item.website}
+                  name={item.name}
+                  size={44}
+                  background={accents.companies.soft}
+                  foreground={accents.companies.deep}
+                  rounded={radius.md}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>
+                    {flag ? `${flag}  ` : ''}{item.name}
+                  </Text>
+                  <Text style={[styles.meta, { color: palette.textDim }]} numberOfLines={1}>
+                    {[
+                      [item.hall, item.stand].filter(Boolean).join(' '),
+                      [item.city, item.country].filter(Boolean).join(', '),
+                    ].filter(Boolean).join('  ·  ') || '—'}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          }}
         />
       )}
     </SafeAreaView>

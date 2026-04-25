@@ -19,7 +19,9 @@ import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useTheme, accents, statusColors, spacing, radius, typography } from '../theme';
 import { Button } from '../components/Button';
+import { BrandLogo } from '../components/BrandLogo';
 import { supabase } from '../lib/supabase';
+import { countryFlagEmoji } from '../lib/brandHelpers';
 
 type Params = { CompanyCard: { companyId: string } };
 type VisitStatus = 'planned' | 'visited' | 'follow_up' | 'skipped';
@@ -31,6 +33,17 @@ interface Company {
   stand:       string | null;
   description: string | null;
   website:     string | null;
+  email:       string | null;
+  email_alt:   string | null;
+  phone:       string | null;
+  fax:         string | null;
+  address:     string | null;
+  postal_code: string | null;
+  city:        string | null;
+  province:    string | null;
+  country:     string | null;
+  category_en: string | null;
+  products_en: string | null;
 }
 
 interface Tag { id: string; name: string }
@@ -72,7 +85,9 @@ export function CompanyCardScreen() {
     const [{ data: c }, { data: t }, { data: ct }, { data: v }] = await Promise.all([
       supabase
         .from('companies')
-        .select('id, name, hall, stand, description, website')
+        .select(
+          'id, name, hall, stand, description, website, email, email_alt, phone, fax, address, postal_code, city, province, country, category_en, products_en',
+        )
         .eq('id', companyId)
         .maybeSingle(),
       supabase
@@ -174,21 +189,41 @@ export function CompanyCardScreen() {
   }
 
   const sc = statusColors[status];
+  const flag = countryFlagEmoji(company.country);
+  const fullAddress = [company.address, company.postal_code, company.city, company.province]
+    .filter(Boolean)
+    .join(', ');
+
+  function openMaps() {
+    if (!fullAddress) return;
+    const q = encodeURIComponent(fullAddress);
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${q}`).catch(() => {});
+  }
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Hero */}
+        {/* Hero — brand logo on a soft background */}
         <View style={[styles.hero, { backgroundColor: accents.companies.soft }]}>
-          <Text style={[styles.heroInitial, { color: accents.companies.deep }]}>
-            {company.name[0].toUpperCase()}
-          </Text>
+          <BrandLogo
+            website={company.website}
+            name={company.name}
+            size={96}
+            background={accents.companies.soft}
+            foreground={accents.companies.deep}
+            rounded={20}
+          />
         </View>
 
-        <Text style={[styles.name, { color: palette.text }]}>{company.name}</Text>
+        <View style={styles.nameRow}>
+          <Text style={[styles.name, { color: palette.text }]} numberOfLines={2}>
+            {company.name}
+          </Text>
+          {flag ? <Text style={styles.flag}>{flag}</Text> : null}
+        </View>
         {(company.hall || company.stand) ? (
           <Text style={[styles.meta, { color: palette.textDim }]}>
-            📍 {[company.hall, company.stand].filter(Boolean).join(' · ')}
+            📍 Hall {[company.hall, company.stand].filter(Boolean).join(' · ')}
           </Text>
         ) : null}
 
@@ -239,6 +274,64 @@ export function CompanyCardScreen() {
             <Text style={[styles.sectionBody, { color: palette.text }]}>
               {company.description}
             </Text>
+          </View>
+        ) : null}
+
+        {/* Contact info — phone, email, address (each tappable) */}
+        {(company.phone || company.email || fullAddress) ? (
+          <View style={[styles.section, { backgroundColor: palette.bgElevated, borderColor: palette.border, padding: 0 }]}>
+            <Text style={[styles.sectionLabel, { color: palette.textDim, padding: spacing.lg, paddingBottom: spacing.sm }]}>
+              CONTACT
+            </Text>
+            {company.phone ? (
+              <Pressable
+                onPress={() => Linking.openURL(`tel:${company.phone!.replace(/\s+/g, '')}`).catch(() => {})}
+                style={({ pressed }) => [styles.contactRow, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={styles.contactEmoji}>📞</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.contactKind, { color: palette.textDim }]}>Telefon</Text>
+                  <Text style={[styles.contactValue, { color: palette.text }]}>{company.phone}</Text>
+                </View>
+                <Text style={[styles.chev, { color: palette.textFaint }]}>›</Text>
+              </Pressable>
+            ) : null}
+            {company.email ? (
+              <Pressable
+                onPress={() => Linking.openURL(`mailto:${company.email}`).catch(() => {})}
+                style={({ pressed }) => [
+                  styles.contactRow,
+                  { borderTopColor: palette.divider, borderTopWidth: StyleSheet.hairlineWidth },
+                  pressed && { opacity: 0.6 },
+                ]}
+              >
+                <Text style={styles.contactEmoji}>✉️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.contactKind, { color: palette.textDim }]}>Email</Text>
+                  <Text style={[styles.contactValue, { color: palette.text }]} numberOfLines={1}>{company.email}</Text>
+                </View>
+                <Text style={[styles.chev, { color: palette.textFaint }]}>›</Text>
+              </Pressable>
+            ) : null}
+            {fullAddress ? (
+              <Pressable
+                onPress={openMaps}
+                style={({ pressed }) => [
+                  styles.contactRow,
+                  { borderTopColor: palette.divider, borderTopWidth: StyleSheet.hairlineWidth },
+                  pressed && { opacity: 0.6 },
+                ]}
+              >
+                <Text style={styles.contactEmoji}>📍</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.contactKind, { color: palette.textDim }]}>
+                    Adresă {flag ? ` ${flag}` : ''}
+                  </Text>
+                  <Text style={[styles.contactValue, { color: palette.text }]} numberOfLines={3}>{fullAddress}</Text>
+                </View>
+                <Text style={[styles.chev, { color: palette.textFaint }]}>›</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -304,14 +397,21 @@ const styles = StyleSheet.create({
   scroll: { padding: spacing.lg, gap: spacing.md, alignItems: 'center', paddingBottom: spacing.xxl },
 
   hero: {
-    width: 96, height: 96, borderRadius: radius.xl,
+    width: 116, height: 116, borderRadius: radius.xl,
     alignItems: 'center', justifyContent: 'center',
     marginTop: spacing.md, marginBottom: spacing.sm,
+    padding: spacing.sm,
   },
   heroInitial: { fontSize: 44, fontWeight: '700' },
 
-  name: { ...typography.title, textAlign: 'center' },
-  meta: { ...typography.body },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg },
+  flag:    { fontSize: 28 },
+  name:    { ...typography.title, textAlign: 'center', flexShrink: 1 },
+  meta:    { ...typography.body },
+
+  contactEmoji: { fontSize: 22 },
+  contactKind:  { ...typography.micro },
+  contactValue: { ...typography.body, marginTop: 2 },
 
   statusPill: {
     flexDirection: 'row',
