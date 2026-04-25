@@ -26,6 +26,21 @@ export function faviconUrl(website: string | null | undefined, size = 128): stri
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=${size}`;
 }
 
+/**
+ * Free landing-page screenshot via WordPress mShots. Cached on their CDN —
+ * first request may return a placeholder; second hit returns the real one.
+ * The browser sends a User-Agent automatically so the request isn't blocked.
+ */
+export function landingScreenshotUrl(
+  website: string | null | undefined,
+  width = 1200,
+  height = 800,
+): string | null {
+  if (!website) return null;
+  const url = website.startsWith('http') ? website : `https://${website}`;
+  return `https://s.wordpress.com/mshots/v1/${encodeURIComponent(url)}?w=${width}&h=${height}`;
+}
+
 // ISO3 → ISO2 for the countries that show up at Salone. The common European
 // + global brands. Falls back to the country code itself if missing.
 const ISO3_TO_ISO2: Record<string, string> = {

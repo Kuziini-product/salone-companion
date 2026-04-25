@@ -4,7 +4,7 @@
 
 import React, { useCallback, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView,
+  ActivityIndicator, Alert, Image, ImageBackground, Linking, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,15 +12,16 @@ import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import {
   Heart, Phone, Mail, MapPin, Globe, Camera, MessageSquarePlus,
-  Sparkles, Save,
+  Sparkles, Save, MessageCircle,
 } from 'lucide-react-native';
 import { useTheme, accents, statusColors, spacing, radius, typography } from '../theme';
 import { Button } from '../components/Button';
 import { BrandLogo } from '../components/BrandLogo';
 import { VoiceMic } from '../components/VoiceMic';
+import { CompanyChatModal } from '../components/CompanyChatModal';
 import { supabase, functionUrl } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { countryFlagEmoji, brandLogoUrl, faviconUrl } from '../lib/brandHelpers';
+import { countryFlagEmoji, brandLogoUrl, faviconUrl, landingScreenshotUrl } from '../lib/brandHelpers';
 import { pickImageWeb } from '../lib/pickImage';
 
 type Params = { CompanyCard: { companyId: string } };
@@ -81,6 +82,7 @@ export function CompanyCardScreen() {
   const [savingFav, setSavingFav] = useState(false);
   const [busyImg, setBusyImg] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const load = useCallback(async () => {
     const [{ data: c }, { data: v }] = await Promise.all([
@@ -264,32 +266,44 @@ export function CompanyCardScreen() {
   const fullAddress = [company.address, company.postal_code, company.city, company.province]
     .filter(Boolean).join(', ');
 
-  // Choose a logo URL with priority Clearbit → favicon. Cap fallback to letter.
+  // Logo URL priority: Clearbit → favicon → letter fallback.
   const heroLogo = brandLogoUrl(company.website, 512) ?? faviconUrl(company.website, 256);
+  const screenshot = landingScreenshotUrl(company.website, 1200, 800);
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* HUGE LOGO HEADER */}
-        <View style={[styles.hero, { backgroundColor: '#FFFFFF', borderColor: palette.border }]}>
-          {heroLogo ? (
-            <Image source={{ uri: heroLogo }} style={styles.heroLogo} resizeMode="contain" />
-          ) : (
-            <Text style={[styles.heroInitial, { color: accents.companies.deep }]}>
-              {company.name[0].toUpperCase()}
-            </Text>
-          )}
+        {/* HERO: landing-page screenshot as background, logo on a white tile on top */}
+        <ImageBackground
+          source={screenshot ? { uri: screenshot } : undefined}
+          style={[styles.hero, { backgroundColor: '#1F2937', borderColor: palette.border }]}
+          imageStyle={{ borderRadius: radius.xl }}
+        >
+          {/* Soft dark scrim so the logo always reads */}
+          <View style={[styles.heroScrim, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
+
+          {/* White logo tile centered */}
+          <View style={styles.heroLogoTile}>
+            {heroLogo ? (
+              <Image source={{ uri: heroLogo }} style={styles.heroLogo} resizeMode="contain" />
+            ) : (
+              <Text style={[styles.heroInitial, { color: accents.companies.deep }]}>
+                {company.name[0].toUpperCase()}
+              </Text>
+            )}
+          </View>
+
           {/* Favorite floating button */}
           <Pressable
             onPress={toggleFavorite}
-            style={[styles.favBtn, { backgroundColor: isFav ? '#EF4444' : 'rgba(255,255,255,0.9)' }]}
+            style={[styles.favBtn, { backgroundColor: isFav ? '#EF4444' : 'rgba(255,255,255,0.95)' }]}
             accessibilityLabel={isFav ? 'Scoate din favorite' : 'Adaugă la favorite'}
           >
             {savingFav
               ? <ActivityIndicator color={isFav ? '#FFFFFF' : '#EF4444'} size="small" />
               : <Heart size={22} color={isFav ? '#FFFFFF' : '#EF4444'} fill={isFav ? '#FFFFFF' : 'transparent'} strokeWidth={2} />}
           </Pressable>
-        </View>
+        </ImageBackground>
 
         {/* Name + flag */}
         <View style={styles.nameBlock}>
@@ -400,18 +414,29 @@ export function CompanyCardScreen() {
               <Text style={[styles.summaryText, { color: palette.text }]}>{visit.ai_summary}</Text>
             </View>
           ) : null}
-          <Pressable
-            onPress={generateSummary}
-            disabled={summarizing || !visit}
-            style={({ pressed }) => [styles.aiBtn, pressed && { opacity: 0.7 }]}
-          >
-            {summarizing
-              ? <ActivityIndicator size="small" color={accents.profile.deep} />
-              : <Sparkles size={16} color={accents.profile.deep} strokeWidth={2} />}
-            <Text style={[styles.aiBtnText, { color: accents.profile.deep }]}>
-              {summarizing ? 'AI scrie rezumat…' : 'Generează rezumat AI'}
-            </Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>
+            <Pressable
+              onPress={generateSummary}
+              disabled={summarizing || !visit}
+              style={({ pressed }) => [styles.aiBtn, pressed && { opacity: 0.7 }]}
+            >
+              {summarizing
+                ? <ActivityIndicator size="small" color={accents.profile.deep} />
+                : <Sparkles size={16} color={accents.profile.deep} strokeWidth={2} />}
+              <Text style={[styles.aiBtnText, { color: accents.profile.deep }]}>
+                {summarizing ? 'AI scrie rezumat…' : 'Rezumat AI'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setChatOpen(true)}
+              style={({ pressed }) => [styles.aiBtn, pressed && { opacity: 0.7 }]}
+            >
+              <MessageCircle size={16} color={accents.companies.deep} strokeWidth={2} />
+              <Text style={[styles.aiBtnText, { color: accents.companies.deep }]}>
+                Chat cu AI despre brand
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* Contact info */}
@@ -475,6 +500,13 @@ export function CompanyCardScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      <CompanyChatModal
+        visible={chatOpen}
+        onClose={() => setChatOpen(false)}
+        companyId={companyId}
+        companyName={company.name}
+      />
     </SafeAreaView>
   );
 }
@@ -485,18 +517,30 @@ const styles = StyleSheet.create({
 
   scroll: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
 
-  // HUGE logo hero — full width, white background to give brand space.
+  // Hero — landing screenshot fills the box, logo sits on a white tile on top.
   hero: {
     width: '100%',
-    height: 220,
+    height: 240,
     borderRadius: radius.xl,
     borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
     overflow: 'hidden',
-    padding: spacing.xl,
   },
-  heroLogo:    { width: '100%', height: '100%' },
-  heroInitial: { fontSize: 96, fontWeight: '700' },
+  heroScrim: { ...StyleSheet.absoluteFillObject, borderRadius: radius.xl },
+  heroLogoTile: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.xl,
+    minWidth: 200,
+    minHeight: 120,
+    maxWidth: '70%',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 16, shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  heroLogo:    { width: 200, height: 100 },
+  heroInitial: { fontSize: 80, fontWeight: '700' },
   favBtn: {
     position: 'absolute', top: spacing.md, right: spacing.md,
     width: 44, height: 44, borderRadius: 22,
