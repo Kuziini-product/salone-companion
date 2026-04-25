@@ -114,7 +114,10 @@ export function CaptureScreen() {
 
   return (
     <View style={styles.flex}>
+      {/* key={facing} forces a remount on toggle: required on web because
+          expo-camera does not re-request getUserMedia when facing changes. */}
       <CameraView
+        key={facing}
         ref={cameraRef}
         style={styles.flex}
         facing={facing}
