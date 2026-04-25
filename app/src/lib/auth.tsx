@@ -48,8 +48,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed.includes('@')) return { error: 'Adresa de email pare invalidă' };
 
-    // The deep link the magic-link email will redirect back to.
-    const redirectTo = Linking.createURL('/auth/callback');
+    // On web we redirect to the site root so detectSessionInUrl picks up the
+    // hash and the AuthProvider transitions automatically. On native we hand
+    // expo-linking a deep-link URL.
+    const redirectTo =
+      typeof window !== 'undefined'
+        ? window.location.origin + '/'
+        : Linking.createURL('/');
 
     const { error } = await supabase.auth.signInWithOtp({
       email: trimmed,
