@@ -3,11 +3,27 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LucideIcon } from 'lucide-react-native';
+import type { ImageSourcePropType } from 'react-native';
 import {
   Sofa, ChefHat, Wrench, ShowerHead, Lightbulb, Briefcase, Crown, Sparkles,
   Bed, Armchair, Trees, Shirt, Monitor,
   Heart, Check, Camera, MessageSquare,
 } from 'lucide-react-native';
+
+// Local user-curated photos. Falls back to Unsplash for buckets without one.
+const LOCAL = {
+  birou:        require('../../assets/categories/birou.jpg'),
+  bucatarie:    require('../../assets/categories/bucatarie.jpg'),
+  dormitor:     require('../../assets/categories/dormitor.jpg'),
+  living:       require('../../assets/categories/living.jpg'),
+  tapiterie:    require('../../assets/categories/tapiterie.jpg'),
+  textile:      require('../../assets/categories/textile.jpg'),
+  baie:         require('../../assets/categories/baie.jpg'),
+  iluminat:     require('../../assets/categories/iluminat.jpg'),
+  livingDining: require('../../assets/categories/living-dining.jpg'),
+  outdoor:      require('../../assets/categories/outdoor.jpg'),
+  pieseUnice:   require('../../assets/categories/piese-unice.jpg'),
+};
 
 export interface Bucket {
   id:    string;
@@ -15,7 +31,7 @@ export interface Bucket {
   Icon:  LucideIcon;
   bg:    string;          // soft tint background (fallback if photo fails)
   fg:    string;          // primary accent
-  photo: string;          // hero photo URL (Unsplash CDN)
+  photo: ImageSourcePropType;  // local require() OR remote { uri } object
   /**
    * Apply the bucket's filter onto a SELECT companies query. May be
    * synchronous OR async (the personal buckets — Favorite, Visited, etc. —
@@ -34,10 +50,10 @@ export interface BucketContext {
   client: SupabaseClient;
 }
 
-// Pre-curated Unsplash photo IDs. The format is the direct CDN URL with
-// a width/height crop hint so they download fast.
-const photo = (id: string) =>
-  `https://images.unsplash.com/photo-${id}?w=800&h=600&fit=crop&q=80&auto=format`;
+// Remote (Unsplash) fallback for buckets that don't have a local photo yet.
+const photo = (id: string): ImageSourcePropType => ({
+  uri: `https://images.unsplash.com/photo-${id}?w=800&h=600&fit=crop&q=80&auto=format`,
+});
 
 const C = {
   amber:  { bg: '#FEF3C7', fg: '#B45309' },
@@ -98,48 +114,48 @@ export const BUCKETS: Bucket[] = [
 
   // ---- Top-level (1:1 with event_code) ------------------------------------
   { id: 'event:SMI', name: 'Mobilier general',     Icon: Sofa,       ...C.blue,
-    photo: photo('1567538096630-e0c55bd6374c'),  // modern living room
+    photo: LOCAL.living,
     order: 1, apply: (q) => q.eq('event_code', 'SMI') },
   { id: 'event:EUC', name: 'Bucătărie',            Icon: ChefHat,    ...C.red,
-    photo: photo('1556909114-f6e7ad7d3136'),     // luxury kitchen
+    photo: LOCAL.bucatarie,
     order: 2, apply: (q) => q.eq('event_code', 'EUC') },
   { id: 'event:FTK', name: 'Tehnologie bucătărie', Icon: Wrench,     ...C.orange,
-    photo: photo('1556909195-4b8ab0bea6dc'),     // built-in oven
+    photo: LOCAL.bucatarie,
     order: 3, apply: (q) => q.eq('event_code', 'FTK') },
   { id: 'event:ARB', name: 'Baie',                 Icon: ShowerHead, ...C.teal,
-    photo: photo('1552321554-5fefe8c9ef14'),     // designer bathroom
+    photo: LOCAL.baie,
     order: 4, apply: (q) => q.eq('event_code', 'ARB') },
   { id: 'event:EIM', name: 'Iluminat',             Icon: Lightbulb,  ...C.amber,
-    photo: photo('1513506003901-1e6a229e2d15'),  // pendant lamps
+    photo: LOCAL.iluminat,
     order: 5, apply: (q) => q.eq('event_code', 'EIM') },
   { id: 'event:CDA', name: 'Workplace & contract', Icon: Briefcase,  ...C.indigo,
-    photo: photo('1497366216548-37526070297c'),  // office workspace
+    photo: LOCAL.birou,
     order: 6, apply: (q) => q.eq('event_code', 'CDA') },
   { id: 'event:RAR', name: 'Piese unice',          Icon: Crown,      ...C.pink,
-    photo: photo('1505691938895-1758d7feb511'),  // gallery interior
+    photo: LOCAL.pieseUnice,
     order: 7, apply: (q) => q.eq('event_code', 'RAR') },
   { id: 'event:S_P', name: 'Tineri designeri',     Icon: Sparkles,   ...C.purple,
-    photo: photo('1572021335469-31706a17aaef'),  // designer sketch / workshop
+    photo: photo('1572021335469-31706a17aaef'),  // no local photo provided
     order: 8, apply: (q) => q.eq('event_code', 'S_P') },
 
   // ---- SMI sub-buckets ----------------------------------------------------
   { id: 'kw:living',      name: 'Living & Dining',   Icon: Sofa,     ...C.blue,
-    photo: photo('1555041469-a586c61ea9bc'),     // sofa in living
+    photo: LOCAL.livingDining,
     order: 20, apply: (q) => q.or('category_en.ilike.%living rooms%,category_en.ilike.%dining rooms%') },
   { id: 'kw:bedroom',     name: 'Dormitor',          Icon: Bed,      ...C.purple,
-    photo: photo('1505693416388-ac5ce068fe85'),  // modern bedroom
+    photo: LOCAL.dormitor,
     order: 21, apply: (q) => q.ilike('category_en', '%bedrooms%') },
   { id: 'kw:upholstered', name: 'Tapițerie & sofa',  Icon: Armchair, ...C.rose,
-    photo: photo('1567016432779-094069958ea5'),  // armchair detail
+    photo: LOCAL.tapiterie,
     order: 22, apply: (q) => q.ilike('category_en', '%upholstered furniture%') },
   { id: 'kw:outdoor',     name: 'Outdoor',           Icon: Trees,    ...C.green,
-    photo: photo('1604147495798-57beb5d6af73'),  // outdoor patio
+    photo: LOCAL.outdoor,
     order: 23, apply: (q) => q.ilike('category_en', '%outdoor%') },
   { id: 'kw:textile',     name: 'Textile & accesorii', Icon: Shirt,  ...C.pink,
-    photo: photo('1528833882626-c4e84def8f72'),  // textile texture
+    photo: LOCAL.textile,
     order: 24, apply: (q) => q.or('category_en.ilike.%textile%,category_en.ilike.%fabric%,category_en.ilike.%accessory%,category_en.ilike.%accessories%') },
   { id: 'kw:office',      name: 'Birou',             Icon: Monitor,  ...C.indigo,
-    photo: photo('1486406146926-c627a92ad1ab'),  // home office
+    photo: LOCAL.birou,
     order: 25, apply: (q) => q.or('category_en.ilike.%office%,category_en.ilike.%contract%') },
 ];
 

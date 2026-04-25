@@ -106,7 +106,7 @@ export function CategoriesScreen() {
               >
                 {/* Top: real photo with subtle overlay */}
                 <ImageBackground
-                  source={{ uri: item.photo }}
+                  source={item.photo}
                   style={styles.photo}
                   imageStyle={styles.photoImage}
                 >
