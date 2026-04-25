@@ -6,9 +6,29 @@
     "orientation": "portrait",
     "scheme": "salone",
     "userInterfaceStyle": "automatic",
-    "ios": { "supportsTablet": true, "bundleIdentifier": "com.salone.companion" },
-    "android": { "package": "com.salone.companion" },
-    "web": { "bundler": "metro", "output": "single" },
+    "icon": "./assets/kuziini-logo.png",
+    "splash": {
+      "image": "./assets/kuziini-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.salone.companion",
+      "icon": "./assets/kuziini-logo.png"
+    },
+    "android": {
+      "package": "com.salone.companion",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/kuziini-logo.png",
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/kuziini-logo.png"
+    },
     "plugins": []
   }
 }

@@ -3,6 +3,7 @@
 
 import React, { useState } from 'react';
 import {
+  Image,
   KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
@@ -10,6 +11,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { Button } from '../components/Button';
 import { useAuth } from '../lib/auth';
+
+const KUZIINI_LOGO = require('../../assets/kuziini-logo.png');
 
 export function AuthScreen() {
   const { palette } = useTheme();
@@ -40,9 +43,16 @@ export function AuthScreen() {
         >
           {/* Hero */}
           <View style={styles.hero}>
-            <View style={[styles.heroIcon, { backgroundColor: accents.capture.soft }]}>
-              <Text style={styles.heroEmoji}>🪑</Text>
-            </View>
+            <Image
+              source={KUZIINI_LOGO}
+              style={[
+                styles.brandLogo,
+                // Logo is solid black; tint to white in dark mode for contrast.
+                palette.mode === 'dark' && { tintColor: palette.text },
+              ]}
+              resizeMode="contain"
+              accessibilityLabel="Kuziini Furniture & More"
+            />
             <Text style={[styles.title, { color: palette.text }]}>Salone Companion</Text>
             <Text style={[styles.subtitle, { color: palette.textDim }]}>
               Capturează expozanți, cărți de vizită și note vocale în timp ce te plimbi prin Rho.
@@ -120,12 +130,11 @@ const styles = StyleSheet.create({
   flex:   { flex: 1 },
   scroll: { flexGrow: 1, padding: spacing.xl, justifyContent: 'center' },
   hero:   { alignItems: 'center', marginBottom: spacing.xxxl },
-  heroIcon: {
-    width: 80, height: 80, borderRadius: 24,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: spacing.lg,
+  brandLogo: {
+    width: 240,
+    height: 72,
+    marginBottom: spacing.xl,
   },
-  heroEmoji: { fontSize: 40 },
   title:    { ...typography.display, textAlign: 'center', marginBottom: spacing.sm },
   subtitle: { ...typography.body, textAlign: 'center', lineHeight: 22, maxWidth: 320 },
 

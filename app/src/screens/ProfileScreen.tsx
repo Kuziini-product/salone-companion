@@ -1,11 +1,13 @@
 // ProfileScreen — minimal: shows email + sign out.
 
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { Button } from '../components/Button';
 import { useAuth } from '../lib/auth';
+
+const KUZIINI_LOGO = require('../../assets/kuziini-logo.png');
 
 export function ProfileScreen() {
   const { palette } = useTheme();
@@ -50,6 +52,22 @@ export function ProfileScreen() {
           onPress={signOut}
           style={{ marginTop: spacing.lg }}
         />
+
+        <View style={styles.brandFooter}>
+          <Image
+            source={KUZIINI_LOGO}
+            style={[
+              styles.brandLogo,
+              palette.mode === 'dark' && { tintColor: palette.textDim },
+              palette.mode === 'light' && { tintColor: palette.textDim },
+            ]}
+            resizeMode="contain"
+            accessibilityLabel="Powered by Kuziini"
+          />
+          <Text style={[styles.brandFooterText, { color: palette.textFaint }]}>
+            powered by Kuziini
+          </Text>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -72,4 +90,13 @@ const styles = StyleSheet.create({
   },
   cardTitle: { ...typography.micro },
   cardBody:  { ...typography.body, lineHeight: 22 },
+
+  brandFooter: {
+    alignItems: 'center',
+    marginTop: spacing.xxxl,
+    gap: 4,
+    opacity: 0.7,
+  },
+  brandLogo: { width: 120, height: 36 },
+  brandFooterText: { ...typography.micro, letterSpacing: 1.5 },
 });
