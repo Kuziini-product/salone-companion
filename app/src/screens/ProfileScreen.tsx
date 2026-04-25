@@ -3,6 +3,7 @@
 import React from 'react';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { Button } from '../components/Button';
 import { useAuth } from '../lib/auth';
@@ -12,6 +13,7 @@ const KUZIINI_LOGO = require('../../assets/kuziini-logo.png');
 export function ProfileScreen() {
   const { palette } = useTheme();
   const { session, signOut } = useAuth();
+  const nav = useNavigation<{ navigate: (s: string) => void }>();
   const email = session?.user.email ?? '—';
 
   return (
@@ -27,6 +29,14 @@ export function ProfileScreen() {
             {email}
           </Text>
         </View>
+
+        <Button
+          label="📸  Scanează carte vizită"
+          accent="capture"
+          size="lg"
+          fullWidth
+          onPress={() => nav.navigate('Capture')}
+        />
 
         <View style={[styles.card, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
           <Text style={[styles.cardTitle, { color: palette.textDim }]}>SINCRONIZARE</Text>

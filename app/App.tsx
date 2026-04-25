@@ -46,7 +46,6 @@ function Tabs() {
       screenOptions={({ route }) => {
         // Each tab gets its own accent color when active.
         const accent =
-          route.name === 'Capture'    ? accents.capture.base   :
           route.name === 'Categories' ? accents.profile.base   :
           route.name === 'Companies'  ? accents.companies.base :
           route.name === 'Contacts'   ? accents.contacts.base  :
@@ -67,7 +66,6 @@ function Tabs() {
           tabBarInactiveTintColor: palette.textFaint,
           tabBarIcon: ({ focused }) => {
             const emoji =
-              route.name === 'Capture'    ? '📸' :
               route.name === 'Categories' ? '🎨' :
               route.name === 'Companies'  ? '🏛️' :
               route.name === 'Contacts'   ? '💼' :
@@ -84,11 +82,6 @@ function Tabs() {
         };
       }}
     >
-      <Tab.Screen
-        name="Capture"
-        component={CaptureScreen}
-        options={{ headerShown: false, title: 'Capturare' }}
-      />
       <Tab.Screen
         name="Categories"
         component={CategoriesScreen}
@@ -159,6 +152,11 @@ function RootNavigator() {
               name="Main"
               component={Tabs}
               options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Capture"
+              component={CaptureScreen}
+              options={{ title: 'Scanare', headerShown: true }}
             />
             <Stack.Screen
               name="CompanyCard"
