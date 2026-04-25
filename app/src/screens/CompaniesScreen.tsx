@@ -3,7 +3,7 @@
 // Two image-search buttons (camera + gallery) trigger searchByImage.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Search, Camera, Image as ImageIcon } from 'lucide-react-native';
@@ -23,6 +23,24 @@ interface Company {
 
 const PAGE_SIZE = 50;
 
+interface QuickFilter {
+  id:    string;
+  label: string;
+  /** Apply filter to the SELECT query. */
+  apply: (q: any) => any;
+}
+
+const QUICK_FILTERS: QuickFilter[] = [
+  { id: 'fav-it', label: '🇮🇹 Italia',  apply: (q) => q.eq('country', 'ITA') },
+  { id: 'fav-de', label: '🇩🇪 Germania', apply: (q) => q.eq('country', 'DEU') },
+  { id: 'fav-fr', label: '🇫🇷 Franța',  apply: (q) => q.eq('country', 'FRA') },
+  { id: 'kit',    label: '🍳 Bucătărie', apply: (q) => q.in('event_code', ['EUC', 'FTK']) },
+  { id: 'bath',   label: '🚿 Baie',      apply: (q) => q.eq('event_code', 'ARB') },
+  { id: 'light',  label: '💡 Iluminat',  apply: (q) => q.eq('event_code', 'EIM') },
+  { id: 'out',    label: '🌿 Outdoor',   apply: (q) => q.ilike('category_en', '%outdoor%') },
+  { id: 'sofa',   label: '🛋️ Living',    apply: (q) => q.or('category_en.ilike.%living rooms%,category_en.ilike.%upholstered%') },
+];
+
 export function CompaniesScreen() {
   const { palette } = useTheme();
   const nav = useNavigation<{ navigate: (s: string, p?: object) => void }>();
@@ -33,6 +51,7 @@ export function CompaniesScreen() {
   const [total, setTotal]       = useState<number | null>(null);
   const [search, setSearch]     = useState('');
   const [query, setQuery]       = useState('');
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
 
   // Debounce input → query.
   useEffect(() => {
@@ -49,6 +68,13 @@ export function CompaniesScreen() {
       .select('id, name, hall, stand, city, country, website', { count: 'exact' })
       .order('name')
       .range(from, to);
+
+    // Apply each active quick filter (AND).
+    for (const id of activeFilters) {
+      const f = QUICK_FILTERS.find((x) => x.id === id);
+      if (f) q = f.apply(q);
+    }
+
     if (query) {
       const terms = expandQuery(query);
       const orParts: string[] = [];
@@ -65,7 +91,7 @@ export function CompaniesScreen() {
       if (orParts.length > 0) q = q.or(orParts.join(','));
     }
     return q;
-  }, [query]);
+  }, [query, activeFilters]);
 
   // Initial load (and re-load when query changes).
   const load = useCallback(async () => {
@@ -170,6 +196,44 @@ export function CompaniesScreen() {
             <Camera size={20} color={accents.capture.base} strokeWidth={2} />}
         </Pressable>
       </View>
+
+      {/* Quick filter chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chipRow}
+      >
+        {QUICK_FILTERS.map((f) => {
+          const active = activeFilters.includes(f.id);
+          return (
+            <Pressable
+              key={f.id}
+              onPress={() => setActiveFilters((cur) =>
+                cur.includes(f.id) ? cur.filter((x) => x !== f.id) : [...cur, f.id]
+              )}
+              style={({ pressed }) => [
+                styles.chip,
+                active
+                  ? { backgroundColor: palette.text, borderColor: palette.text }
+                  : { backgroundColor: palette.bgElevated, borderColor: palette.border },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text style={[styles.chipText, { color: active ? palette.bg : palette.text }]}>
+                {f.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+        {activeFilters.length > 0 ? (
+          <Pressable
+            onPress={() => setActiveFilters([])}
+            style={({ pressed }) => [styles.chip, { borderColor: palette.danger }, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={[styles.chipText, { color: palette.danger }]}>✕ Șterge filtrele</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
 
       {loading ? (
         <View style={styles.center}><Text style={{ color: palette.textDim }}>Se încarcă…</Text></View>
@@ -290,5 +354,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
+  chipRow: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  chip: {
+    paddingHorizontal: spacing.md, paddingVertical: 8,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  chipText: { ...typography.caption, fontWeight: '600' },
   footer: { textAlign: 'center', paddingVertical: spacing.lg, ...typography.caption },
 });

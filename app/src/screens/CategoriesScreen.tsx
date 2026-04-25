@@ -90,7 +90,6 @@ export function CategoriesScreen() {
           contentContainerStyle={styles.listContent}
           ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
           renderItem={({ item }) => {
-            const Icon = item.Icon;
             const count = counts[item.id] ?? 0;
             return (
               <Pressable
@@ -99,29 +98,17 @@ export function CategoriesScreen() {
                   {
                     backgroundColor: palette.bgElevated,
                     borderColor: palette.border,
-                    shadowColor: item.fg,
                   },
-                  pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
+                  pressed && { opacity: 0.7 },
                 ]}
                 onPress={() => open(item)}
               >
-                {/* Soft color halo at top */}
-                <View style={[styles.cardHalo, { backgroundColor: item.bg }]} />
-
-                {/* Centered icon bubble */}
-                <View style={[styles.iconBubble, { backgroundColor: item.bg, borderColor: item.fg }]}>
-                  <Icon size={26} color={item.fg} strokeWidth={1.75} />
-                </View>
-
-                {/* Centered title + count */}
                 <Text style={[styles.cardName, { color: palette.text }]} numberOfLines={2}>
                   {item.name}
                 </Text>
-                <View style={[styles.countPill, { backgroundColor: item.bg }]}>
-                  <Text style={[styles.countPillText, { color: item.fg }]}>
-                    {count} {count === 1 ? 'expozant' : 'expozanți'}
-                  </Text>
-                </View>
+                <Text style={[styles.cardCount, { color: palette.textDim }]}>
+                  {count} {count === 1 ? 'expozant' : 'expozanți'}
+                </Text>
               </Pressable>
             );
           }}
@@ -180,31 +167,14 @@ const styles = StyleSheet.create({
 
   card: {
     flex: 1,
-    minHeight: 168,
-    borderRadius: radius.xl,
-    borderWidth: 1,
+    minHeight: 120,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-    gap: spacing.sm,
-    // Soft colored shadow tinted by the bucket accent.
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 4,
-  },
-  // Subtle color halo at the top edge of each card for personality.
-  cardHalo: {
-    position: 'absolute', top: 0, left: 0, right: 0, height: 56,
-    opacity: 0.35,
-  },
-  iconBubble: {
-    width: 56, height: 56, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1.5,
-    marginBottom: spacing.xs,
+    gap: 6,
   },
   cardName: {
     ...typography.subheading,
@@ -212,12 +182,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  countPill: {
-    paddingHorizontal: spacing.sm, paddingVertical: 4,
-    borderRadius: radius.pill,
-    marginTop: 2,
-  },
-  countPillText: { ...typography.caption, fontWeight: '700' },
+  cardCount: { ...typography.caption, textAlign: 'center' },
 
   footer: {
     textAlign: 'center',
