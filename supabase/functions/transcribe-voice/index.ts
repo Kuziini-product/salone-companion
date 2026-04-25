@@ -1,61 +1,103 @@
 // transcribe-voice
-// Body: { audio_url: string, voice_note_id?: string }
-// Returns: { transcript: string }
+// Sends an audio recording to OpenAI Whisper and (optionally) persists the
+// transcript on the matching voice_notes row.
 //
-// Calls OpenAI Whisper. If voice_note_id is provided, persists the transcript.
+// POST { audio_url: string, voice_note_id?: string }
+//   audio_url:     storage path inside `voice-notes/` OR a fully-qualified URL.
+//   voice_note_id: if provided, the transcript is written back to this row.
+//
+// Returns:
+//   { transcript: string, persisted: boolean }
 
-import { corsHeaders, handleOptions } from '../_shared/cors.ts';
-import { getServiceClient, getUserId } from '../_shared/supabase.ts';
+import {
+  corsHeaders, errorResponse, jsonResponse, readJson,
+  userClient, adminClient, signedUrl,
+} from '../_shared/utils.ts';
 
-const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+interface Body {
+  audio_url: string;
+  voice_note_id?: string;
+}
 
 Deno.serve(async (req) => {
-  const optionsResponse = handleOptions(req);
-  if (optionsResponse) return optionsResponse;
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST')   return errorResponse('Method not allowed', 405);
 
+  const body = await readJson<Body>(req);
+  if (!body?.audio_url) return errorResponse('audio_url is required');
+
+  const openaiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!openaiKey) return errorResponse('OPENAI_API_KEY missing', 500);
+
+  // Resolve to a fetchable URL.
+  let fetchUrl = body.audio_url;
+  if (!fetchUrl.startsWith('http')) {
+    try {
+      const admin = adminClient();
+      // Whisper download can take a few seconds — sign for 5 minutes.
+      fetchUrl = await signedUrl(admin, 'voice-notes', fetchUrl, 300);
+    } catch (e) {
+      return errorResponse(`Could not sign audio: ${(e as Error).message}`, 400);
+    }
+  }
+
+  // 1. Download the audio bytes.
+  let audioBytes: Uint8Array;
+  let contentType = 'audio/m4a';
   try {
-    const userId = await getUserId(req);
-    if (!userId) return json({ error: 'Unauthorized' }, 401);
+    const r = await fetch(fetchUrl);
+    if (!r.ok) throw new Error(`Storage GET ${r.status}`);
+    contentType = r.headers.get('Content-Type') ?? contentType;
+    audioBytes = new Uint8Array(await r.arrayBuffer());
+  } catch (e) {
+    return errorResponse(`Audio download failed: ${(e as Error).message}`, 502);
+  }
 
-    const { audio_url, voice_note_id } = await req.json();
-    if (!audio_url) return json({ error: 'audio_url required' }, 400);
+  // 2. Send to Whisper.
+  // We pick a filename matching the content-type so OpenAI knows the format.
+  const filename = pickFilename(contentType);
+  const form = new FormData();
+  form.append('file', new Blob([audioBytes], { type: contentType }), filename);
+  form.append('model', 'whisper-1');
+  // Italian or English are both common at Salone; let Whisper auto-detect.
+  form.append('response_format', 'json');
 
-    const audioRes = await fetch(audio_url);
-    const audioBlob = await audioRes.blob();
-
-    const form = new FormData();
-    form.append('file', audioBlob, 'audio.m4a');
-    form.append('model', 'whisper-1');
-
-    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+  let transcript: string;
+  try {
+    const wr = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+      headers: { 'Authorization': `Bearer ${openaiKey}` },
       body: form,
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('Whisper error', response.status, text);
-      return json({ error: 'Transcription failed' }, 502);
+    if (!wr.ok) {
+      const errText = await wr.text();
+      throw new Error(`Whisper ${wr.status}: ${errText}`);
     }
-
-    const { text: transcript } = await response.json();
-
-    if (voice_note_id) {
-      const supabase = getServiceClient();
-      await supabase.from('voice_notes').update({ transcript }).eq('id', voice_note_id);
-    }
-
-    return json({ transcript });
-  } catch (err) {
-    console.error(err);
-    return json({ error: String(err) }, 500);
+    const data = await wr.json();
+    transcript = (data.text ?? '').trim();
+  } catch (e) {
+    return errorResponse(`Whisper failed: ${(e as Error).message}`, 502);
   }
+
+  // 3. Persist if requested. Uses the user's JWT so RLS enforces ownership.
+  let persisted = false;
+  if (body.voice_note_id) {
+    const supabase = userClient(req);
+    const { error } = await supabase
+      .from('voice_notes')
+      .update({ transcript })
+      .eq('id', body.voice_note_id);
+    persisted = !error;
+  }
+
+  return jsonResponse({ transcript, persisted });
 });
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+function pickFilename(contentType: string): string {
+  if (contentType.includes('m4a') || contentType.includes('mp4')) return 'audio.m4a';
+  if (contentType.includes('mpeg') || contentType.includes('mp3')) return 'audio.mp3';
+  if (contentType.includes('wav'))  return 'audio.wav';
+  if (contentType.includes('webm')) return 'audio.webm';
+  if (contentType.includes('ogg'))  return 'audio.ogg';
+  return 'audio.m4a';
 }

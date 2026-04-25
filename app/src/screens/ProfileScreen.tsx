@@ -1,63 +1,75 @@
+// ProfileScreen — minimal: shows email + sign out.
+
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { palette, font, space, radius } from '@/theme';
-import { Button } from '@/components/Button';
-import { useStore } from '@/lib/mockStore';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme, accents, spacing, radius, typography } from '../theme';
+import { Button } from '../components/Button';
+import { useAuth } from '../lib/auth';
 
 export function ProfileScreen() {
-  const visits = useStore((s) => s.visits);
-  const contacts = useStore((s) => s.contacts);
-  const images = useStore((s) => s.images);
-
-  const visited = visits.filter((v) => v.status === 'visited').length;
-  const followUp = visits.filter((v) => v.status === 'follow_up').length;
+  const { palette } = useTheme();
+  const { session, signOut } = useAuth();
+  const email = session?.user.email ?? '—';
 
   return (
-    <View style={styles.container}>
-      <View style={styles.section}>
-        <Text style={styles.label}>Demo mode</Text>
-        <Text style={styles.value}>Salone Companion</Text>
-        <Text style={styles.dim}>
-          Local data only. Connect Supabase + Anthropic for full functionality.
-        </Text>
-      </View>
+    <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['top']}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.header}>
+          <View style={[styles.avatar, { backgroundColor: accents.profile.soft }]}>
+            <Text style={[styles.avatarText, { color: accents.profile.deep }]}>
+              {email[0].toUpperCase()}
+            </Text>
+          </View>
+          <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>
+            {email}
+          </Text>
+        </View>
 
-      <View style={styles.section}>
-        <Text style={styles.label}>This session</Text>
-        <Stat label="Visited" value={visited} />
-        <Stat label="Follow-up" value={followUp} />
-        <Stat label="Photos" value={images.length} />
-        <Stat label="Contacts" value={contacts.length} />
-      </View>
+        <View style={[styles.card, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+          <Text style={[styles.cardTitle, { color: palette.textDim }]}>SINCRONIZARE</Text>
+          <Text style={[styles.cardBody, { color: palette.text }]}>
+            Datele tale (vizite, contacte, note vocale) sunt salvate în cloud.
+            Pe viitor vor fi disponibile și offline.
+          </Text>
+        </View>
 
-      <View style={styles.section}>
-        <Button label="Export CSV (demo)" variant="secondary" onPress={() => {}} />
-      </View>
-    </View>
-  );
-}
+        <View style={[styles.card, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+          <Text style={[styles.cardTitle, { color: palette.textDim }]}>EXPORT</Text>
+          <Text style={[styles.cardBody, { color: palette.text }]}>
+            Toate vizitele se pot descărca ca CSV sau JSON din endpoint-ul /export.
+          </Text>
+        </View>
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <View style={styles.statRow}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
-    </View>
+        <Button
+          label="Deconectare"
+          accent="danger"
+          variant="secondary"
+          size="lg"
+          fullWidth
+          onPress={signOut}
+          style={{ marginTop: spacing.lg }}
+        />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.bg, padding: space.lg, gap: space.lg },
-  section: {
-    backgroundColor: palette.bgCard,
-    borderRadius: radius.lg,
-    padding: space.lg,
-    gap: space.xs,
+  flex:    { flex: 1 },
+  content: { padding: spacing.lg, gap: spacing.md },
+  header:  { alignItems: 'center', paddingVertical: spacing.xl, gap: spacing.md },
+  avatar:  {
+    width: 80, height: 80, borderRadius: radius.xl,
+    alignItems: 'center', justifyContent: 'center',
   },
-  label: { ...font.caption, color: palette.textDim, textTransform: 'uppercase', letterSpacing: 0.5 },
-  value: { ...font.title, color: palette.text },
-  dim: { ...font.caption, color: palette.textMuted, marginTop: space.xs },
-  statRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: space.xs },
-  statLabel: { ...font.body, color: palette.textDim },
-  statValue: { ...font.body, color: palette.text, fontWeight: '700' },
+  avatarText: { fontSize: 36, fontWeight: '700' },
+  name:       { ...typography.heading },
+
+  card: {
+    borderRadius: radius.lg, borderWidth: 1,
+    padding: spacing.lg, gap: spacing.sm,
+  },
+  cardTitle: { ...typography.micro },
+  cardBody:  { ...typography.body, lineHeight: 22 },
 });

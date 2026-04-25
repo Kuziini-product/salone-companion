@@ -1,25 +1,107 @@
--- Seed data for local dev: a handful of real Salone exhibitors
--- Replace with full catalog via the importer.
+-- ============================================================================
+-- Salone Companion — Demo seed
+-- ============================================================================
+-- Loads a small slice of plausible Salone exhibitors + tags so the app has
+-- something to render without running the importer.
+-- Safe to re-run: uses ON CONFLICT DO NOTHING.
+-- ============================================================================
 
-insert into companies (external_id, name, stand_number, pavilion, hall, website, description, source) values
-  ('cassina',     'Cassina',         'B12', 'Pavilion 6', 'Hall 6',  'https://www.cassina.com',     'Italian luxury furniture manufacturer founded in 1927.', 'imported'),
-  ('molteni',     'Molteni&C',       'D04', 'Pavilion 6', 'Hall 6',  'https://www.molteni.it',      'Modern furniture and contract solutions.',               'imported'),
-  ('poliform',    'Poliform',        'A20', 'Pavilion 8', 'Hall 8',  'https://www.poliform.it',     'Living, dining, bedroom, kitchen systems.',              'imported'),
-  ('b-and-b',     'B&B Italia',      'C02', 'Pavilion 6', 'Hall 6',  'https://www.bebitalia.com',   'Iconic Italian design since 1966.',                       'imported'),
-  ('flexform',    'Flexform',        'B30', 'Pavilion 8', 'Hall 8',  'https://www.flexform.it',     'Sofas, armchairs, beds — refined modern design.',         'imported'),
-  ('minotti',     'Minotti',         'A12', 'Pavilion 6', 'Hall 6',  'https://www.minotti.com',     'High-end indoor and outdoor collections.',               'imported'),
-  ('kartell',     'Kartell',         'D11', 'Pavilion 12','Hall 12', 'https://www.kartell.com',     'Innovative plastic design furniture.',                   'imported'),
-  ('artemide',    'Artemide',        'C18', 'Pavilion 13','Hall 13', 'https://www.artemide.com',    'Lighting design and innovation.',                        'imported'),
-  ('flos',        'Flos',            'B22', 'Pavilion 13','Hall 13', 'https://www.flos.com',        'Decorative and architectural lighting.',                 'imported'),
-  ('boffi',       'Boffi',           'A06', 'Pavilion 24','Hall 24', 'https://www.boffi.com',       'Kitchen and bathroom systems.',                          'imported')
-on conflict (external_id) do nothing;
-
-insert into tags (name, color) values
-  ('Lighting',    '#F59E0B'),
-  ('Sofas',       '#3B82F6'),
-  ('Kitchen',     '#10B981'),
-  ('Outdoor',     '#84CC16'),
-  ('Office',      '#8B5CF6'),
-  ('Premium',     '#EC4899'),
-  ('Sustainable', '#22C55E')
+insert into public.tags (id, name, color) values
+  ('11111111-1111-1111-1111-111111110001', 'Lighting',  '#F5C242'),
+  ('11111111-1111-1111-1111-111111110002', 'Sofas',     '#7A8FA6'),
+  ('11111111-1111-1111-1111-111111110003', 'Tables',    '#A37C4F'),
+  ('11111111-1111-1111-1111-111111110004', 'Premium',   '#9B5DE5'),
+  ('11111111-1111-1111-1111-111111110005', 'Italian',   '#2EC4B6'),
+  ('11111111-1111-1111-1111-111111110006', 'Outdoor',   '#3DDC97')
 on conflict (name) do nothing;
+
+insert into public.companies
+  (id, name, hall, stand, website, description)
+values
+  ('22222222-2222-2222-2222-222222220001',
+   'Cassina',
+   'Hall 6', 'C12',
+   'https://www.cassina.com',
+   'Italian high-end furniture house known for collaborations with Le Corbusier and Charlotte Perriand.'),
+  ('22222222-2222-2222-2222-222222220002',
+   'Flos',
+   'Hall 11', 'A22',
+   'https://flos.com',
+   'Architectural and decorative lighting since 1962.'),
+  ('22222222-2222-2222-2222-222222220003',
+   'Poliform',
+   'Hall 6', 'D03',
+   'https://www.poliform.it',
+   'Living, dining, and bedroom systems with a strong wardrobe program.'),
+  ('22222222-2222-2222-2222-222222220004',
+   'Artemide',
+   'Hall 11', 'B14',
+   'https://www.artemide.com',
+   'Italian lighting design — Tizio, Tolomeo, Pirce.'),
+  ('22222222-2222-2222-2222-222222220005',
+   'B&B Italia',
+   'Hall 6', 'A05',
+   'https://www.bebitalia.com',
+   'Modern sofas and outdoor collections.'),
+  ('22222222-2222-2222-2222-222222220006',
+   'Kartell',
+   'Hall 20', 'C01',
+   'https://www.kartell.com',
+   'Pioneer of polycarbonate furniture and design.'),
+  ('22222222-2222-2222-2222-222222220007',
+   'Molteni&C',
+   'Hall 6', 'B08',
+   'https://www.molteni.it',
+   'Wardrobes, kitchens, and living systems.'),
+  ('22222222-2222-2222-2222-222222220008',
+   'Foscarini',
+   'Hall 11', 'D11',
+   'https://www.foscarini.com',
+   'Decorative lighting from Venice.'),
+  ('22222222-2222-2222-2222-222222220009',
+   'Minotti',
+   'Hall 6', 'A18',
+   'https://www.minotti.com',
+   'Premium upholstery, sofas and outdoor.'),
+  ('22222222-2222-2222-2222-22222222000a',
+   'Gervasoni',
+   'Hall 8', 'C20',
+   'https://www.gervasoni1882.com',
+   'Indoor and outdoor furniture with Paola Navone collaborations.')
+on conflict (id) do nothing;
+
+-- Tag mappings
+insert into public.company_tags (company_id, tag_id) values
+  -- Cassina
+  ('22222222-2222-2222-2222-222222220001', '11111111-1111-1111-1111-111111110002'),
+  ('22222222-2222-2222-2222-222222220001', '11111111-1111-1111-1111-111111110004'),
+  ('22222222-2222-2222-2222-222222220001', '11111111-1111-1111-1111-111111110005'),
+  -- Flos
+  ('22222222-2222-2222-2222-222222220002', '11111111-1111-1111-1111-111111110001'),
+  ('22222222-2222-2222-2222-222222220002', '11111111-1111-1111-1111-111111110005'),
+  -- Poliform
+  ('22222222-2222-2222-2222-222222220003', '11111111-1111-1111-1111-111111110002'),
+  ('22222222-2222-2222-2222-222222220003', '11111111-1111-1111-1111-111111110005'),
+  -- Artemide
+  ('22222222-2222-2222-2222-222222220004', '11111111-1111-1111-1111-111111110001'),
+  ('22222222-2222-2222-2222-222222220004', '11111111-1111-1111-1111-111111110005'),
+  -- B&B Italia
+  ('22222222-2222-2222-2222-222222220005', '11111111-1111-1111-1111-111111110002'),
+  ('22222222-2222-2222-2222-222222220005', '11111111-1111-1111-1111-111111110004'),
+  ('22222222-2222-2222-2222-222222220005', '11111111-1111-1111-1111-111111110006'),
+  -- Kartell
+  ('22222222-2222-2222-2222-222222220006', '11111111-1111-1111-1111-111111110003'),
+  ('22222222-2222-2222-2222-222222220006', '11111111-1111-1111-1111-111111110005'),
+  -- Molteni
+  ('22222222-2222-2222-2222-222222220007', '11111111-1111-1111-1111-111111110002'),
+  ('22222222-2222-2222-2222-222222220007', '11111111-1111-1111-1111-111111110005'),
+  -- Foscarini
+  ('22222222-2222-2222-2222-222222220008', '11111111-1111-1111-1111-111111110001'),
+  -- Minotti
+  ('22222222-2222-2222-2222-222222220009', '11111111-1111-1111-1111-111111110002'),
+  ('22222222-2222-2222-2222-222222220009', '11111111-1111-1111-1111-111111110004'),
+  ('22222222-2222-2222-2222-222222220009', '11111111-1111-1111-1111-111111110006'),
+  -- Gervasoni
+  ('22222222-2222-2222-2222-22222222000a', '11111111-1111-1111-1111-111111110002'),
+  ('22222222-2222-2222-2222-22222222000a', '11111111-1111-1111-1111-111111110006')
+on conflict do nothing;

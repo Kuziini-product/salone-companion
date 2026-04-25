@@ -1,127 +1,109 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TextInput, Pressable } from 'react-native';
-import { palette, font, space, radius } from '@/theme';
-import { useStore } from '@/lib/mockStore';
+// CompaniesScreen — placeholder until the catalog flow is wired.
+// Already shows real data from the seeded `companies` table.
 
-export function CompaniesScreen({ navigation }: any) {
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'visited' | 'follow_up'>('all');
-  const companies = useStore((s) => s.companies);
-  const visits = useStore((s) => s.visits);
+import React, { useCallback, useEffect, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import { useTheme, accents, spacing, radius, typography } from '../theme';
+import { EmptyState } from '../components/EmptyState';
+import { supabase } from '../lib/supabase';
 
-  const visitMap = useMemo(() => {
-    const m = new Map<string, (typeof visits)[number]>();
-    for (const v of visits) m.set(v.companyId, v);
-    return m;
-  }, [visits]);
+interface Company {
+  id: string; name: string; hall: string | null; stand: string | null;
+}
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return companies
-      .filter((c) => (q ? c.name.toLowerCase().includes(q) : true))
-      .filter((c) => {
-        if (filter === 'all') return true;
-        return visitMap.get(c.id)?.status === filter;
-      });
-  }, [companies, visitMap, query, filter]);
+export function CompaniesScreen() {
+  const { palette } = useTheme();
+  const nav = useNavigation<{ navigate: (s: string, p?: object) => void }>();
+  const [rows, setRows] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    const { data } = await supabase
+      .from('companies')
+      .select('id, name, hall, stand')
+      .order('name')
+      .limit(200);
+    setRows(data ?? []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['top']}>
       <View style={styles.header}>
-        <TextInput
-          style={styles.search}
-          placeholder="Search by name…"
-          placeholderTextColor={palette.textMuted}
-          value={query}
-          onChangeText={setQuery}
-          autoCapitalize="none"
-        />
-        <View style={styles.filterRow}>
-          {(['all', 'visited', 'follow_up'] as const).map((f) => (
-            <Pressable
-              key={f}
-              style={[styles.chip, filter === f && styles.chipActive]}
-              onPress={() => setFilter(f)}
-            >
-              <Text style={[styles.chipLabel, filter === f && styles.chipLabelActive]}>
-                {f === 'all' ? 'All' : f === 'visited' ? 'Visited' : 'Follow-up'}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <Text style={[styles.title, { color: palette.text }]}>Expozanți</Text>
+        {rows.length > 0 ? (
+          <Text style={[styles.count, { color: accents.companies.base }]}>{rows.length}</Text>
+        ) : null}
       </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: space.xxl }}
-        renderItem={({ item }) => {
-          const visit = visitMap.get(item.id);
-          return (
+      {loading ? (
+        <View style={styles.center}><Text style={{ color: palette.textDim }}>Se încarcă…</Text></View>
+      ) : rows.length === 0 ? (
+        <EmptyState
+          icon={<Text style={{ fontSize: 56 }}>🏛️</Text>}
+          title="Nu sunt expozanți încă"
+          message="Rulează importer-ul ca să încarci catalogul Salone, sau aplică seed.sql pentru date demo."
+        />
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={(r) => r.id}
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+          renderItem={({ item }) => (
             <Pressable
-              style={styles.row}
-              onPress={() => navigation.navigate('CompanyCard', { companyId: item.id })}
+              onPress={() => nav.navigate('CompanyCard', { companyId: item.id })}
+              style={({ pressed }) => [
+                styles.row,
+                { backgroundColor: palette.bgElevated, borderColor: palette.border },
+                pressed && { opacity: 0.7 },
+              ]}
             >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.name}>{item.name}</Text>
-                <Text style={styles.meta}>
-                  {[item.hall, item.standNumber].filter(Boolean).join(' · ') || '—'}
+              <View style={[styles.bullet, { backgroundColor: accents.companies.soft }]}>
+                <Text style={[styles.bulletText, { color: accents.companies.deep }]}>
+                  {item.name[0].toUpperCase()}
                 </Text>
               </View>
-              {visit && (
-                <View
-                  style={[
-                    styles.dot,
-                    {
-                      backgroundColor:
-                        visit.status === 'visited'
-                          ? palette.success
-                          : visit.status === 'follow_up'
-                            ? palette.followUp
-                            : palette.textMuted,
-                    },
-                  ]}
-                />
-              )}
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>{item.name}</Text>
+                {(item.hall || item.stand) ? (
+                  <Text style={[styles.meta, { color: palette.textDim }]}>
+                    {[item.hall, item.stand].filter(Boolean).join(' · ')}
+                  </Text>
+                ) : null}
+              </View>
             </Pressable>
-          );
-        }}
-        ItemSeparatorComponent={() => <View style={styles.sep} />}
-        ListEmptyComponent={<Text style={styles.empty}>No matches.</Text>}
-      />
-    </View>
+          )}
+        />
+      )}
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.bg },
-  header: { padding: space.lg, gap: space.md },
-  search: {
-    height: 44,
-    backgroundColor: palette.bgElevated,
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    color: palette.text,
-    ...font.body,
-    borderWidth: 1,
-    borderColor: palette.border,
+  flex:   { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  header: {
+    flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm,
   },
-  filterRow: { flexDirection: 'row', gap: space.sm },
-  chip: {
-    paddingHorizontal: space.md,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-    backgroundColor: palette.bgElevated,
-    borderWidth: 1,
-    borderColor: palette.border,
+  title: { ...typography.title },
+  count: { ...typography.heading },
+  listContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
+  row: {
+    flexDirection: 'row', alignItems: 'center',
+    borderRadius: radius.lg, borderWidth: 1,
+    padding: spacing.sm, gap: spacing.md,
   },
-  chipActive: { backgroundColor: palette.text, borderColor: palette.text },
-  chipLabel: { ...font.caption, color: palette.textDim, fontWeight: '600' },
-  chipLabelActive: { color: palette.bg },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.lg, paddingVertical: space.md, gap: space.md },
-  name: { ...font.body, color: palette.text, fontWeight: '500' },
-  meta: { ...font.caption, color: palette.textDim, marginTop: 2 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  sep: { height: StyleSheet.hairlineWidth, backgroundColor: palette.border, marginLeft: space.lg },
-  empty: { ...font.body, color: palette.textMuted, textAlign: 'center', marginTop: space.xxl },
+  bullet: {
+    width: 44, height: 44, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bulletText: { ...typography.heading },
+  name: { ...typography.bodyBold },
+  meta: { ...typography.caption },
 });

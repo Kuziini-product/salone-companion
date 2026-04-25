@@ -1,88 +1,86 @@
 // parse-business-card
-// Body: { image_url: string }
-// Returns: { full_name, role, email, phone, company_name, raw_ocr_text, confidence }
+// Reads a business-card photo and returns structured contact fields. Uses
+// Claude Vision (Opus 4.7) for OCR + extraction in a single pass.
 //
-// Uses Claude Vision to OCR + extract structured fields in one shot.
-// Cheaper and more reliable than Vision API + regex for noisy cards.
+// POST { image_url: string }
+//   image_url: storage path inside `business-cards/` (e.g. "<uid>/abc.jpg")
+//              OR a fully-qualified URL.
+//
+// Returns:
+//   { full_name, role, email, phone, company_name, website, address, confidence (0..1) }
 
-import { corsHeaders, handleOptions } from '../_shared/cors.ts';
-import { getUserId } from '../_shared/supabase.ts';
+import {
+  corsHeaders, errorResponse, jsonResponse, readJson,
+  adminClient, signedUrl, anthropicVisionCall, extractJson, MODELS,
+} from '../_shared/utils.ts';
 
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
-const MODEL = 'claude-haiku-4-5-20251001';
+interface Body {
+  image_url: string;
+}
+
+interface CardFields {
+  full_name?:    string;
+  role?:         string;
+  email?:        string;
+  phone?:        string;
+  company_name?: string;
+  website?:      string;
+  address?:      string;
+  confidence?:   number; // 0..1
+}
 
 Deno.serve(async (req) => {
-  const optionsResponse = handleOptions(req);
-  if (optionsResponse) return optionsResponse;
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST')   return errorResponse('Method not allowed', 405);
 
-  try {
-    const userId = await getUserId(req);
-    if (!userId) return json({ error: 'Unauthorized' }, 401);
+  const body = await readJson<Body>(req);
+  if (!body?.image_url) return errorResponse('image_url is required');
 
-    const { image_url } = await req.json();
-    if (!image_url) return json({ error: 'image_url required' }, 400);
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!apiKey) return errorResponse('ANTHROPIC_API_KEY missing', 500);
 
-    const imgRes = await fetch(image_url);
-    const imgBuf = new Uint8Array(await imgRes.arrayBuffer());
-    const imgB64 = btoa(String.fromCharCode(...imgBuf));
-    const mediaType = imgRes.headers.get('content-type') ?? 'image/jpeg';
-
-    const prompt = `Extract structured contact info from this business card.
-Respond with ONLY JSON, no prose:
-{
-  "full_name": "<person name or null>",
-  "role": "<job title or null>",
-  "email": "<email or null>",
-  "phone": "<phone in E.164 if possible, or null>",
-  "company_name": "<company name or null>",
-  "raw_ocr_text": "<all text on the card, line-broken>",
-  "confidence": <0..1 — overall extraction confidence>
-}`;
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 1024,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgB64 } },
-              { type: 'text', text: prompt },
-            ],
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('Anthropic error', response.status, text);
-      return json({ error: 'OCR failed' }, 502);
+  let visionUrl = body.image_url;
+  if (!visionUrl.startsWith('http')) {
+    try {
+      const admin = adminClient();
+      visionUrl = await signedUrl(admin, 'business-cards', visionUrl, 60);
+    } catch (e) {
+      return errorResponse(`Could not sign image: ${(e as Error).message}`, 400);
     }
-
-    const aiResult = await response.json();
-    const textBlock = aiResult.content?.find((b: { type: string }) => b.type === 'text');
-    const raw = textBlock?.text ?? '{}';
-    const match = raw.match(/\{[\s\S]*\}/);
-    const parsed = match ? JSON.parse(match[0]) : {};
-
-    return json(parsed);
-  } catch (err) {
-    console.error(err);
-    return json({ error: String(err) }, 500);
   }
-});
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
+  let fields: CardFields;
+  try {
+    const raw = await anthropicVisionCall({
+      apiKey,
+      model: MODELS.vision,
+      systemPrompt: [
+        'You extract contact information from photographs of business cards.',
+        'Return ONLY a JSON object with these optional string fields:',
+        '  full_name, role, email, phone, company_name, website, address',
+        'Plus a "confidence" number from 0 to 1 reflecting how legible the card was overall.',
+        'Rules:',
+        ' - Use the text exactly as printed; do not translate or normalise.',
+        ' - For phone, keep the international prefix if present (e.g. "+39 02 1234567").',
+        ' - For email and website, lower-case them.',
+        ' - If a field is missing or unreadable, omit it (do not return null).',
+        ' - The card may be Italian, English, or another language; read it as-is.',
+      ].join('\n'),
+      userPrompt: 'Extract the contact fields from this business card. Return JSON only.',
+      imageUrl: visionUrl,
+      maxTokens: 600,
+    });
+    const parsed = extractJson<CardFields>(raw);
+    if (!parsed) return errorResponse('Model returned non-JSON', 502);
+    fields = parsed;
+  } catch (e) {
+    return errorResponse(`Vision call failed: ${(e as Error).message}`, 502);
+  }
+
+  // Light post-processing so the client gets clean data.
+  if (fields.email)   fields.email   = fields.email.trim().toLowerCase();
+  if (fields.website) fields.website = fields.website.trim().toLowerCase();
+  if (fields.phone)   fields.phone   = fields.phone.replace(/\s+/g, ' ').trim();
+
+  return jsonResponse(fields);
+});

@@ -1,157 +1,269 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
-import { palette, font, radius, space } from '@/theme';
-import { Button } from '@/components/Button';
-import { useStore } from '@/lib/mockStore';
+// CaptureScreen
+// Full-screen camera with a mode toggle (Stand vs Card) and a single big
+// shutter button. Haptic feedback on press. After capture:
+//   - Stand mode → goes to MatchResult (TODO when match-logo is wired)
+//   - Card mode  → calls scanCard() and goes to ContactDetail with preview
+
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator, Alert, Pressable, StyleSheet, Text, View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as Haptics from 'expo-haptics';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useTheme, accents, spacing, radius, typography } from '../theme';
+import { Button } from '../components/Button';
+import { scanCard } from '../lib/scanCard';
 
 type Mode = 'stand' | 'card';
 
-export function CaptureScreen({ navigation }: any) {
-  const [mode, setMode] = useState<Mode>('stand');
-  const companies = useStore((s) => s.companies);
-  const addContact = useStore((s) => s.addContact);
+type Nav = NativeStackNavigationProp<{
+  ContactDetail: { previewUri: string; storagePath: string; parsed: unknown; isNew: true };
+  MatchResult:   { previewUri: string; storagePath: string };
+}>;
 
-  function simulateStandShot() {
-    // Demo: pretend we matched 3 companies with the vision API.
-    const sample = companies.slice(0, 3).map((c, i) => ({
-      company_id: c.id,
-      name: c.name,
-      confidence: 0.92 - i * 0.18,
-      reason:
-        i === 0
-          ? 'Logo and signage on the stand match the brand identity.'
-          : i === 1
-            ? 'Color palette and typography are similar.'
-            : 'Geographic proximity within the same hall.',
-    }));
-    navigation.navigate('MatchResult', {
-      imageUri:
-        'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?w=1600&q=80',
-      matches: sample,
-    });
+export function CaptureScreen() {
+  const { palette } = useTheme();
+  const nav = useNavigation<Nav>();
+  const [permission, requestPermission] = useCameraPermissions();
+  const [mode, setMode] = useState<Mode>('card');   // start in card mode — top use case
+  const [busy, setBusy] = useState(false);
+  const cameraRef = useRef<CameraView>(null);
+
+  useEffect(() => {
+    if (permission && !permission.granted && permission.canAskAgain) {
+      requestPermission();
+    }
+  }, [permission, requestPermission]);
+
+  const accent = mode === 'card' ? accents.contacts : accents.capture;
+
+  const onShutter = async () => {
+    if (busy || !cameraRef.current) return;
+    setBusy(true);
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.85,
+        skipProcessing: false,
+      });
+      if (!photo) throw new Error('Nu am putut face poza');
+
+      if (mode === 'card') {
+        // Run the OCR pipeline; show a spinner while waiting.
+        const result = await scanCard(photo.uri);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        nav.navigate('ContactDetail', {
+          previewUri:  result.publicPreview,
+          storagePath: result.storagePath,
+          parsed:      result.parsed,
+          isNew:       true,
+        });
+      } else {
+        // Stand mode: TODO wire match-logo. For now, simply hand off the
+        // photo so the next screen can show the match candidates.
+        nav.navigate('MatchResult', {
+          previewUri:  photo.uri,
+          storagePath: photo.uri,
+        });
+      }
+    } catch (e) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Eroare', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!permission) {
+    return (
+      <View style={[styles.center, { backgroundColor: palette.bg }]}>
+        <ActivityIndicator color={palette.text} />
+      </View>
+    );
   }
 
-  function simulateCardShot() {
-    const fake = addContact({
-      cardUri: 'https://images.unsplash.com/photo-1606857521015-7f9fcf423740?w=800&q=80',
-      fullName: 'Marco Rossi',
-      role: 'Sales Director',
-      email: 'm.rossi@cassina.com',
-      phone: '+39 333 1234567',
-      rawOcrText: 'CASSINA\nMarco Rossi\nSales Director\nm.rossi@cassina.com\n+39 333 1234567',
-      companyId: 'cassina',
-    });
-    navigation.navigate('ContactDetail', { contactId: fake.id });
+  if (!permission.granted) {
+    return (
+      <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['top']}>
+        <View style={styles.center}>
+          <Text style={[styles.permTitle, { color: palette.text }]}>Acces la cameră</Text>
+          <Text style={[styles.permMessage, { color: palette.textDim }]}>
+            Avem nevoie de permisiune pentru a fotografia standuri și cărți de vizită.
+          </Text>
+          <Button
+            label="Permite accesul"
+            onPress={requestPermission}
+            accent="capture"
+            size="lg"
+            style={{ marginTop: spacing.lg, alignSelf: 'stretch' }}
+          />
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.viewfinder}>
-        <Text style={styles.demoBadge}>DEMO</Text>
-        <Text style={styles.viewfinderHint}>
-          {mode === 'stand'
-            ? 'Point at a stand. Tap shutter to identify the brand.'
-            : 'Frame a business card inside the rectangle.'}
-        </Text>
-        {mode === 'card' && <View style={styles.cardOverlay} pointerEvents="none" />}
+    <View style={styles.flex}>
+      <CameraView
+        ref={cameraRef}
+        style={styles.flex}
+        facing="back"
+      />
+
+      {/* Top: mode segmented control */}
+      <SafeAreaView style={styles.topOverlay} edges={['top']} pointerEvents="box-none">
+        <View style={styles.modeSegment}>
+          <ModeButton
+            label="Stand"
+            emoji="📸"
+            active={mode === 'stand'}
+            onPress={() => { setMode('stand'); Haptics.selectionAsync(); }}
+            activeColor={accents.capture.base}
+          />
+          <ModeButton
+            label="Carte vizită"
+            emoji="💼"
+            active={mode === 'card'}
+            onPress={() => { setMode('card'); Haptics.selectionAsync(); }}
+            activeColor={accents.contacts.base}
+          />
+        </View>
+      </SafeAreaView>
+
+      {/* Center: framing guide */}
+      <View style={styles.frameWrap} pointerEvents="none">
+        <View style={[
+          styles.frame,
+          mode === 'card' ? styles.frameCard : styles.frameStand,
+          { borderColor: accent.base },
+        ]}>
+          <Text style={[styles.frameHint, { color: '#FFFFFF' }]}>
+            {mode === 'card'
+              ? 'Aliniază cartea de vizită în chenar'
+              : 'Centrează standul sau logo-ul'}
+          </Text>
+        </View>
       </View>
 
-      <View style={styles.modeBar}>
-        <ModeButton label="Stand" active={mode === 'stand'} onPress={() => setMode('stand')} />
-        <ModeButton label="Card" active={mode === 'card'} onPress={() => setMode('card')} />
-      </View>
-
-      <View style={styles.shutterRow}>
+      {/* Bottom: shutter */}
+      <SafeAreaView style={styles.bottomOverlay} edges={['bottom']}>
         <Pressable
-          style={styles.shutter}
-          onPress={mode === 'stand' ? simulateStandShot : simulateCardShot}
+          onPress={onShutter}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.shutter,
+            { borderColor: accent.base },
+            pressed && { transform: [{ scale: 0.94 }] },
+          ]}
         >
-          <View style={styles.shutterInner} />
+          <View style={[styles.shutterInner, { backgroundColor: accent.base }]}>
+            {busy ? (
+              <ActivityIndicator color="#FFFFFF" size="large" />
+            ) : null}
+          </View>
         </Pressable>
-        <Text style={styles.helper}>
-          {Platform.OS === 'web'
-            ? 'Browser demo · using sample image instead of camera'
-            : 'Tap to capture'}
+        <Text style={styles.bottomHint}>
+          {busy
+            ? (mode === 'card' ? 'Citesc cartea de vizită…' : 'Procesez…')
+            : 'Apasă pentru a fotografia'}
         </Text>
-      </View>
+      </SafeAreaView>
     </View>
   );
 }
 
-function ModeButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+interface ModeButtonProps {
+  label: string;
+  emoji: string;
+  active: boolean;
+  onPress: () => void;
+  activeColor: string;
+}
+function ModeButton({ label, emoji, active, onPress, activeColor }: ModeButtonProps) {
   return (
-    <Pressable onPress={onPress} style={[styles.modeBtn, active && styles.modeBtnActive]}>
-      <Text style={[styles.modeLabel, active && styles.modeLabelActive]}>{label}</Text>
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.modeButton,
+        active && { backgroundColor: activeColor },
+      ]}
+    >
+      <Text style={styles.modeEmoji}>{emoji}</Text>
+      <Text style={[
+        styles.modeLabel,
+        active ? { color: '#FFFFFF' } : { color: 'rgba(255,255,255,0.7)' },
+      ]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.bg, justifyContent: 'space-between' },
-  viewfinder: {
-    flex: 1,
-    margin: space.lg,
-    borderRadius: radius.xl,
-    backgroundColor: palette.bgElevated,
-    borderWidth: 1,
-    borderColor: palette.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: space.lg,
-    overflow: 'hidden',
+  flex:   { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
+
+  permTitle:   { ...typography.title, marginBottom: spacing.sm },
+  permMessage: { ...typography.body, textAlign: 'center', lineHeight: 22 },
+
+  topOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    alignItems: 'center', paddingTop: spacing.md,
   },
-  demoBadge: {
-    position: 'absolute',
-    top: space.md,
-    right: space.md,
-    backgroundColor: palette.accent,
-    color: palette.text,
-    paddingHorizontal: space.sm,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
-    ...font.caption,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  viewfinderHint: { ...font.body, color: palette.textDim, textAlign: 'center', maxWidth: 320 },
-  cardOverlay: {
-    position: 'absolute',
-    top: '30%',
-    left: '8%',
-    right: '8%',
-    aspectRatio: 1.586,
-    borderWidth: 2,
-    borderColor: palette.text,
-    borderRadius: radius.md,
-  },
-  modeBar: {
-    alignSelf: 'center',
+  modeSegment: {
     flexDirection: 'row',
-    backgroundColor: palette.bgElevated,
+    backgroundColor: 'rgba(0,0,0,0.55)',
     borderRadius: radius.pill,
     padding: 4,
     gap: 4,
-    borderWidth: 1,
-    borderColor: palette.border,
   },
-  modeBtn: { paddingHorizontal: space.lg, paddingVertical: space.sm, borderRadius: radius.pill },
-  modeBtnActive: { backgroundColor: palette.text },
-  modeLabel: { ...font.button, color: palette.text },
-  modeLabelActive: { color: palette.bg },
-  shutterRow: { alignItems: 'center', paddingBottom: space.xl, gap: space.sm },
+  modeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    gap: 6,
+  },
+  modeEmoji: { fontSize: 16 },
+  modeLabel: { ...typography.bodyBold },
+
+  frameWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  frame: {
+    borderWidth: 3,
+    borderRadius: radius.lg,
+    alignItems: 'center', justifyContent: 'flex-end',
+    padding: spacing.lg,
+  },
+  frameCard:  { width: '85%', aspectRatio: 1.7 },     // standard biz card aspect
+  frameStand: { width: '85%', aspectRatio: 0.9 },     // taller for stands
+  frameHint:  { ...typography.caption, textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 4 },
+
+  bottomOverlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    alignItems: 'center', paddingBottom: spacing.xl,
+  },
   shutter: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: palette.text,
-    padding: 4,
+    width: 88, height: 88, borderRadius: 44,
+    borderWidth: 4,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'center', justifyContent: 'center',
   },
   shutterInner: {
-    flex: 1,
-    borderRadius: 999,
-    backgroundColor: palette.text,
-    borderWidth: 4,
-    borderColor: palette.bg,
+    width: 70, height: 70, borderRadius: 35,
+    alignItems: 'center', justifyContent: 'center',
   },
-  helper: { ...font.caption, color: palette.textMuted },
+  bottomHint: {
+    ...typography.caption,
+    color: '#FFFFFF',
+    marginTop: spacing.md,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowRadius: 4,
+  },
 });

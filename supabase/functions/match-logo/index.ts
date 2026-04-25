@@ -1,134 +1,158 @@
 // match-logo
-// Body: { image_url: string, hall?: string, top_k?: number }
-// Returns: { matches: Array<{ company_id, name, confidence, reason }> }
+// Receives a photo of a stand or logo and returns the top candidate companies
+// from our catalog. Uses Claude Vision (Opus 4.7) to read brand text and visual
+// cues, then fuzzy-matches against the companies table.
 //
-// Strategy: narrow the catalog by hall when known (smaller candidate set),
-// then ask Claude Vision to pick the best matches. Always returns top-K so
-// the user can disambiguate.
+// POST { image_url: string, hall?: string, top_k?: number }
+//   image_url: storage path inside `company-images/` (e.g. "<uid>/abc.jpg")
+//              OR a fully-qualified URL we can pass to the model.
+//   hall:       optional, narrows search to one hall.
+//   top_k:      optional, defaults to 3. Hard-capped at 5.
+//
+// Returns:
+//   { matches: [
+//       { company_id, name, hall, stand, confidence (0..1), reason }
+//     ] }
 
-import { corsHeaders, handleOptions } from '../_shared/cors.ts';
-import { getServiceClient, getUserId } from '../_shared/supabase.ts';
+import {
+  corsHeaders, errorResponse, jsonResponse, readJson,
+  userClient, adminClient, signedUrl,
+  anthropicVisionCall, extractJson, MODELS,
+} from '../_shared/utils.ts';
 
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
-const MODEL = 'claude-opus-4-7';
+interface Body {
+  image_url: string;
+  hall?: string;
+  top_k?: number;
+}
 
-interface Match {
-  company_id: string;
-  name: string;
-  confidence: number;
-  reason: string;
+interface ModelGuess {
+  brand_text?: string;       // text the model read on the stand/logo
+  brand_keywords?: string[]; // additional words/style cues
+  guess_names?: string[];    // model's best guesses for the brand name
 }
 
 Deno.serve(async (req) => {
-  const optionsResponse = handleOptions(req);
-  if (optionsResponse) return optionsResponse;
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST')   return errorResponse('Method not allowed', 405);
 
+  const body = await readJson<Body>(req);
+  if (!body?.image_url) return errorResponse('image_url is required');
+
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!apiKey) return errorResponse('ANTHROPIC_API_KEY missing', 500);
+
+  // Resolve to a fetchable URL: storage paths get signed; full URLs pass through.
+  let visionUrl = body.image_url;
+  if (!visionUrl.startsWith('http')) {
+    try {
+      const admin = adminClient();
+      visionUrl = await signedUrl(admin, 'company-images', visionUrl, 60);
+    } catch (e) {
+      return errorResponse(`Could not sign image: ${(e as Error).message}`, 400);
+    }
+  }
+
+  const topK = Math.min(Math.max(body.top_k ?? 3, 1), 5);
+
+  // 1. Ask Claude Vision what's on the stand.
+  let guess: ModelGuess;
   try {
-    const userId = await getUserId(req);
-    if (!userId) {
-      return json({ error: 'Unauthorized' }, 401);
-    }
+    const raw = await anthropicVisionCall({
+      apiKey,
+      model: MODELS.vision,
+      systemPrompt: [
+        'You are a brand-recognition assistant for the Salone del Mobile design fair in Milan.',
+        'You will be given a photo of an exhibitor stand or a logo.',
+        'Read any visible brand text and infer the most likely Italian/European furniture or lighting brand.',
+        'Return ONLY a JSON object with this shape:',
+        '{ "brand_text": string, "brand_keywords": string[], "guess_names": string[] }',
+        'guess_names should contain 1-3 plausible brand names ordered by confidence.',
+        'Do not invent details; if unreadable, return empty arrays.',
+      ].join('\n'),
+      userPrompt: 'Identify the brand on this stand. Return JSON only.',
+      imageUrl: visionUrl,
+      maxTokens: 400,
+    });
+    const parsed = extractJson<ModelGuess>(raw);
+    if (!parsed) return errorResponse('Model returned non-JSON', 502);
+    guess = parsed;
+  } catch (e) {
+    return errorResponse(`Vision call failed: ${(e as Error).message}`, 502);
+  }
 
-    const { image_url, hall, top_k = 3 } = await req.json();
-    if (!image_url) {
-      return json({ error: 'image_url required' }, 400);
-    }
+  // 2. Build a search query and fuzzy-match against the catalog.
+  const supabase = userClient(req);
+  const candidates = [
+    ...(guess.guess_names ?? []),
+    guess.brand_text ?? '',
+  ].map((s) => s.trim()).filter(Boolean);
 
-    const supabase = getServiceClient();
+  if (candidates.length === 0) {
+    return jsonResponse({ matches: [], guess });
+  }
 
-    // Narrow candidate set
+  // For each candidate, get fuzzy hits via trigram similarity. We aggregate
+  // the best score per company across candidates.
+  const scoreByCompany = new Map<string, { score: number; row: Record<string, unknown> }>();
+
+  for (const name of candidates) {
     let query = supabase
       .from('companies')
-      .select('id, name, stand_number, hall, pavilion, description');
-    if (hall) query = query.eq('hall', hall);
-    const { data: candidates, error } = await query.limit(200);
-    if (error) throw error;
-
-    if (!candidates || candidates.length === 0) {
-      return json({ matches: [] });
+      .select('id, name, hall, stand, logo_url')
+      .ilike('name', `%${name}%`)
+      .limit(8);
+    if (body.hall) query = query.eq('hall', body.hall);
+    const { data, error } = await query;
+    if (error) continue;
+    if (!data) continue;
+    for (const row of data) {
+      const score = similarity(name.toLowerCase(), (row.name as string).toLowerCase());
+      const prev = scoreByCompany.get(row.id as string);
+      if (!prev || prev.score < score) {
+        scoreByCompany.set(row.id as string, { score, row });
+      }
     }
-
-    // Fetch the image as base64 for Claude
-    const imgRes = await fetch(image_url);
-    const imgBuf = new Uint8Array(await imgRes.arrayBuffer());
-    const imgB64 = btoa(String.fromCharCode(...imgBuf));
-    const mediaType = imgRes.headers.get('content-type') ?? 'image/jpeg';
-
-    const candidateList = candidates
-      .map((c, i) => `${i + 1}. ${c.name} — ${c.hall ?? ''} ${c.stand_number ?? ''}`)
-      .join('\n');
-
-    const prompt = `You are looking at a photo of an exhibition stand at Salone del Mobile.
-Identify the brand/company shown. Pick the top ${top_k} most likely matches from this candidate list:
-
-${candidateList}
-
-Respond with ONLY a JSON array, no prose:
-[{"index": <1-based index>, "confidence": <0..1>, "reason": "<short justification>"}]
-If none match, return [].`;
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 1024,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgB64 } },
-              { type: 'text', text: prompt },
-            ],
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('Anthropic error', response.status, text);
-      return json({ error: 'Vision API failed' }, 502);
-    }
-
-    const aiResult = await response.json();
-    const textBlock = aiResult.content?.find((b: { type: string }) => b.type === 'text');
-    const raw = textBlock?.text ?? '[]';
-    const parsed = parseJsonArray(raw);
-
-    const matches: Match[] = parsed
-      .map((m) => {
-        const c = candidates[m.index - 1];
-        return c
-          ? { company_id: c.id, name: c.name, confidence: m.confidence, reason: m.reason }
-          : null;
-      })
-      .filter((m): m is Match => m !== null);
-
-    return json({ matches });
-  } catch (err) {
-    console.error(err);
-    return json({ error: String(err) }, 500);
   }
+
+  // 3. Rank and return the top_k.
+  const matches = [...scoreByCompany.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK)
+    .map(({ score, row }) => ({
+      company_id: row.id,
+      name:       row.name,
+      hall:       row.hall,
+      stand:      row.stand,
+      logo_url:   row.logo_url,
+      confidence: Math.round(score * 100) / 100,
+      reason:     guess.brand_text ? `Read "${guess.brand_text}" on stand` : 'Visual match',
+    }));
+
+  return jsonResponse({ matches, guess });
 });
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
-function parseJsonArray(s: string): Array<{ index: number; confidence: number; reason: string }> {
-  const match = s.match(/\[[\s\S]*\]/);
-  if (!match) return [];
-  try {
-    return JSON.parse(match[0]);
-  } catch {
-    return [];
+// Lightweight Sørensen-Dice similarity over bigrams. Cheap, dependency-free,
+// and good enough for short brand names.
+function similarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const bigrams = (s: string) => {
+    const out = new Map<string, number>();
+    for (let i = 0; i < s.length - 1; i++) {
+      const g = s.slice(i, i + 2);
+      out.set(g, (out.get(g) ?? 0) + 1);
+    }
+    return out;
+  };
+  const ga = bigrams(a);
+  const gb = bigrams(b);
+  let intersection = 0;
+  for (const [g, c] of ga) {
+    const cb = gb.get(g);
+    if (cb) intersection += Math.min(c, cb);
   }
+  const totalA = [...ga.values()].reduce((s, n) => s + n, 0);
+  const totalB = [...gb.values()].reduce((s, n) => s + n, 0);
+  return (2 * intersection) / (totalA + totalB);
 }

@@ -1,55 +1,67 @@
+# Local Supabase config — used by `npx supabase start`.
+# For production/cloud projects, settings live in the dashboard.
+
 project_id = "salone-companion"
 
 [api]
 enabled = true
-port = 54321
+port    = 54321
 schemas = ["public", "storage", "graphql_public"]
-extra_search_path = ["public", "extensions"]
-max_rows = 1000
 
 [db]
-port = 54322
-shadow_port = 54320
-major_version = 15
+port           = 54322
+shadow_port    = 54320
+major_version  = 15
 
 [studio]
 enabled = true
-port = 54323
+port    = 54323
+
+[inbucket]
+enabled = true
+port    = 54324
+
+[auth]
+enabled                  = true
+site_url                 = "http://localhost:8081"
+additional_redirect_urls = ["exp://*", "salonecompanion://*"]
+jwt_expiry               = 3600
+enable_signup            = true
+
+[auth.email]
+enable_signup     = true
+double_confirm_changes = true
+enable_confirmations   = true
+
+# Magic-link is the primary auth flow per README.
+[auth.email.template.magic_link]
+subject = "Your Salone Companion sign-in link"
 
 [storage]
-enabled = true
+enabled        = true
 file_size_limit = "50MiB"
 
-[storage.buckets.company-images]
+[[storage.buckets]]
+id     = "company-images"
+name   = "company-images"
 public = false
 file_size_limit = "20MiB"
 allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/heic"]
 
-[storage.buckets.business-cards]
+[[storage.buckets]]
+id     = "business-cards"
+name   = "business-cards"
 public = false
 file_size_limit = "10MiB"
 allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/heic"]
 
-[storage.buckets.voice-notes]
+[[storage.buckets]]
+id     = "voice-notes"
+name   = "voice-notes"
 public = false
-file_size_limit = "10MiB"
-allowed_mime_types = ["audio/mpeg", "audio/mp4", "audio/m4a", "audio/wav", "audio/webm"]
-
-[auth]
-enabled = true
-site_url = "exp://localhost:19000"
-additional_redirect_urls = ["exp://localhost:19000", "salone://"]
-jwt_expiry = 3600
-enable_signup = true
-
-[auth.email]
-enable_signup = true
-double_confirm_changes = true
-enable_confirmations = false
+file_size_limit = "30MiB"
+allowed_mime_types = ["audio/m4a", "audio/mp4", "audio/mpeg", "audio/wav", "audio/webm", "audio/ogg"]
 
 [edge_runtime]
 enabled = true
-policy = "oneshot"
-
-[analytics]
-enabled = false
+inspector_port = 8083

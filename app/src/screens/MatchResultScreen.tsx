@@ -1,72 +1,42 @@
+// MatchResultScreen — placeholder. Will call match-logo edge function in
+// the next iteration when we wire the Stand mode.
+
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image } from 'react-native';
-import { palette, font, space, radius, shadow } from '@/theme';
-import { Button } from '@/components/Button';
-import { useStore } from '@/lib/mockStore';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useTheme, accents, spacing, radius, typography } from '../theme';
+import { Button } from '../components/Button';
 
-interface Match {
-  company_id: string;
-  name: string;
-  confidence: number;
-  reason: string;
-}
+type Params = { MatchResult: { previewUri: string; storagePath: string } };
 
-export function MatchResultScreen({ route, navigation }: any) {
-  const { imageUri, matches } = route.params as { imageUri: string; matches: Match[] };
-  const setStatus = useStore((s) => s.setStatus);
-
-  function confirm(companyId: string) {
-    setStatus(companyId, 'visited');
-    navigation.replace('CompanyCard', { companyId });
-  }
+export function MatchResultScreen() {
+  const { palette } = useTheme();
+  const nav = useNavigation();
+  const route = useRoute<RouteProp<Params, 'MatchResult'>>();
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="cover" />
-
-      <Text style={styles.header}>Top matches</Text>
-
-      {matches.length === 0 ? (
-        <Text style={styles.empty}>
-          No confident matches found. You can pick from the list.
-        </Text>
-      ) : (
-        matches.map((m) => (
-          <Pressable key={m.company_id} style={styles.matchCard} onPress={() => confirm(m.company_id)}>
-            <View style={styles.matchHeader}>
-              <Text style={styles.matchName}>{m.name}</Text>
-              <Text style={styles.matchConfidence}>{Math.round(m.confidence * 100)}%</Text>
-            </View>
-            <Text style={styles.matchReason}>{m.reason}</Text>
-          </Pressable>
-        ))
-      )}
-
-      <Button
-        label="None of these — pick from list"
-        variant="secondary"
-        onPress={() => navigation.navigate('Main', { screen: 'Companies' })}
-        style={{ marginTop: space.lg }}
-      />
-    </ScrollView>
+    <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['bottom']}>
+      <View style={styles.content}>
+        <Image source={{ uri: route.params.previewUri }} style={styles.image} resizeMode="cover" />
+        <View style={[styles.banner, { backgroundColor: accents.capture.soft, borderColor: accents.capture.base }]}>
+          <Text style={[styles.bannerText, { color: accents.capture.deep }]}>
+            Recunoașterea logo-ului va fi disponibilă în următoarea versiune.
+          </Text>
+        </View>
+        <Button label="Înapoi" accent="capture" onPress={() => nav.goBack()} fullWidth />
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.bg },
-  content: { padding: space.lg, gap: space.md, paddingBottom: space.xxl },
-  preview: { width: '100%', aspectRatio: 4 / 3, borderRadius: radius.lg, backgroundColor: palette.bgElevated },
-  header: { ...font.title, color: palette.text, marginTop: space.md },
-  empty: { ...font.body, color: palette.textDim, marginVertical: space.lg },
-  matchCard: {
-    backgroundColor: palette.bgCard,
-    borderRadius: radius.lg,
-    padding: space.lg,
-    gap: space.xs,
-    ...shadow.card,
+  flex:    { flex: 1 },
+  content: { flex: 1, padding: spacing.lg, gap: spacing.lg },
+  image:   { width: '100%', aspectRatio: 1, borderRadius: radius.lg },
+  banner:  {
+    borderWidth: 1, borderRadius: radius.md,
+    padding: spacing.lg,
   },
-  matchHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  matchName: { ...font.title, color: palette.text },
-  matchConfidence: { ...font.caption, color: palette.accent, fontWeight: '600' },
-  matchReason: { ...font.caption, color: palette.textDim, lineHeight: 18 },
+  bannerText: { ...typography.body, textAlign: 'center' },
 });

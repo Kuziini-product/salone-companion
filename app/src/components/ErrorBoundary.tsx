@@ -1,30 +1,34 @@
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
-import { palette, font, space } from '@/theme';
+// Tiny error boundary so a crashed screen doesn't take down the whole app.
+// Logs to console; in production we'd hook this up to Sentry/Bugsnag.
 
-interface State {
-  err: Error | null;
-}
+import React from 'react';
+import { Text, View, StyleSheet, Pressable } from 'react-native';
+
+interface State { error?: Error }
 
 export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
-  state: State = { err: null };
+  state: State = {};
 
-  static getDerivedStateFromError(err: Error): State {
-    return { err };
-  }
+  static getDerivedStateFromError(error: Error) { return { error }; }
 
-  componentDidCatch(err: Error, info: React.ErrorInfo) {
-    console.error('App error:', err, info);
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // eslint-disable-next-line no-console
+    console.error('[ErrorBoundary]', error, info);
   }
 
   render() {
-    if (this.state.err) {
+    if (this.state.error) {
       return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-          <Text style={styles.title}>Something broke</Text>
-          <Text style={styles.message}>{this.state.err.message}</Text>
-          <Text style={styles.stack}>{this.state.err.stack}</Text>
-        </ScrollView>
+        <View style={styles.wrap}>
+          <Text style={styles.title}>Ceva nu a mers</Text>
+          <Text style={styles.message}>{this.state.error.message}</Text>
+          <Pressable
+            onPress={() => this.setState({ error: undefined })}
+            style={styles.button}
+          >
+            <Text style={styles.buttonText}>Reîncearcă</Text>
+          </Pressable>
+        </View>
       );
     }
     return this.props.children;
@@ -32,9 +36,9 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.bg },
-  content: { padding: space.lg, gap: space.md },
-  title: { ...font.title, color: palette.danger },
-  message: { ...font.body, color: palette.text },
-  stack: { ...font.caption, color: palette.textDim, fontFamily: 'Courier' },
+  wrap:    { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#0B0F17' },
+  title:   { fontSize: 22, fontWeight: '700', color: '#F1F5F9', marginBottom: 8 },
+  message: { fontSize: 14, color: '#94A3B8', textAlign: 'center', marginBottom: 24 },
+  button:  { backgroundColor: '#FF6B4A', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 14 },
+  buttonText: { color: '#FFFFFF', fontWeight: '600' },
 });

@@ -1,234 +1,375 @@
-import React, { useState } from 'react';
+// CompanyCardScreen
+// Rich detail view for a single exhibitor.
+//
+// Sections (top to bottom):
+//   Hero        — colored letter avatar + name + hall/stand
+//   Visit pill  — tap to cycle status (planned → visited → follow_up → skipped)
+//   Tags        — colored chips, tap to open the category list
+//   About       — description text
+//   Actions     — open website
+//   Contacts    — business cards already linked to this company
+
+import React, { useCallback, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  Pressable,
-  Image,
-  Linking,
-  Platform,
+  ActivityIndicator, Alert, Linking, Pressable, ScrollView,
+  StyleSheet, Text, View,
 } from 'react-native';
-import { palette, font, space, radius, shadow } from '@/theme';
-import { Button } from '@/components/Button';
-import { StatusPill } from '@/components/StatusPill';
-import { useStore, type VisitStatus } from '@/lib/mockStore';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
+import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useTheme, accents, statusColors, spacing, radius, typography } from '../theme';
+import { Button } from '../components/Button';
+import { supabase } from '../lib/supabase';
 
-type Tab = 'info' | 'photos' | 'notes';
+type Params = { CompanyCard: { companyId: string } };
+type VisitStatus = 'planned' | 'visited' | 'follow_up' | 'skipped';
 
-const SAMPLE_PHOTOS = [
-  'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?w=800&q=80',
-  'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=800&q=80',
-  'https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=800&q=80',
-];
+interface Company {
+  id:          string;
+  name:        string;
+  hall:        string | null;
+  stand:       string | null;
+  description: string | null;
+  website:     string | null;
+}
 
-export function CompanyCardScreen({ route }: any) {
-  const { companyId } = route.params as { companyId: string };
-  const [tab, setTab] = useState<Tab>('info');
+interface Tag { id: string; name: string }
+interface ContactRow { id: string; full_name: string | null; role: string | null }
 
-  const company = useStore((s) => s.getCompany(companyId));
-  const visit = useStore((s) => s.getVisitForCompany(companyId));
-  const images = useStore((s) => (visit ? s.getImagesForVisit(visit.id) : []));
-  const setStatus = useStore((s) => s.setStatus);
-  const setNotes = useStore((s) => s.setNotes);
-  const setAiSummary = useStore((s) => s.setAiSummary);
-  const addImage = useStore((s) => s.addImage);
-  const upsertVisit = useStore((s) => s.upsertVisit);
+const flavorByName: Record<string, { bg: string; fg: string }> = {
+  Lighting: { bg: '#FEF3C7', fg: '#92400E' },
+  Sofas:    { bg: '#DBEAFE', fg: '#1D4ED8' },
+  Tables:   { bg: '#FEE2E2', fg: '#991B1B' },
+  Premium:  { bg: '#EDE9FE', fg: '#5B21B6' },
+  Italian:  { bg: '#D1FAE5', fg: '#047857' },
+  Outdoor:  { bg: '#DCFCE7', fg: '#166534' },
+};
+const tagFallback = { bg: accents.companies.soft, fg: accents.companies.deep };
 
-  const [draftNotes, setDraftNotes] = useState(visit?.notes ?? '');
-  const [summarizing, setSummarizing] = useState(false);
+const statusOrder: VisitStatus[] = ['planned', 'visited', 'follow_up', 'skipped'];
+const statusLabel: Record<VisitStatus, string> = {
+  planned:   'Planificat',
+  visited:   'Vizitat',
+  follow_up: 'Follow-up',
+  skipped:   'Sărit',
+};
 
-  if (!company) {
+export function CompanyCardScreen() {
+  const { palette } = useTheme();
+  const nav = useNavigation<{ navigate: (s: string, p?: object) => void }>();
+  const route = useRoute<RouteProp<Params, 'CompanyCard'>>();
+  const { companyId } = route.params;
+
+  const [company, setCompany]   = useState<Company | null>(null);
+  const [tags, setTags]         = useState<Tag[]>([]);
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [visitId, setVisitId]   = useState<string | null>(null);
+  const [status, setStatus]     = useState<VisitStatus>('planned');
+  const [loading, setLoading]   = useState(true);
+  const [savingStatus, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    const [{ data: c }, { data: t }, { data: ct }, { data: v }] = await Promise.all([
+      supabase
+        .from('companies')
+        .select('id, name, hall, stand, description, website')
+        .eq('id', companyId)
+        .maybeSingle(),
+      supabase
+        .from('company_tags')
+        .select('tags!inner(id, name)')
+        .eq('company_id', companyId),
+      supabase
+        .from('contacts')
+        .select('id, full_name, role')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('visits')
+        .select('id, status')
+        .eq('company_id', companyId)
+        .maybeSingle(),
+    ]);
+
+    setCompany(c ?? null);
+    setTags(((t ?? []).map((r) => r.tags as unknown as Tag).filter(Boolean)));
+    setContacts(ct ?? []);
+    if (v) {
+      setVisitId(v.id);
+      setStatus(v.status as VisitStatus);
+    }
+    setLoading(false);
+  }, [companyId]);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Cycle through statuses on tap. First tap creates the visit row.
+  const cycleStatus = async () => {
+    if (savingStatus) return;
+    Haptics.selectionAsync();
+    const previous = status;
+    const next = statusOrder[(statusOrder.indexOf(status) + 1) % statusOrder.length];
+    setStatus(next);
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Nu ești autentificat');
+      if (visitId) {
+        const { error } = await supabase
+          .from('visits')
+          .update({
+            status: next,
+            visited_at: next === 'visited' ? new Date().toISOString() : null,
+          })
+          .eq('id', visitId);
+        if (error) throw new Error(error.message);
+      } else {
+        const { data, error } = await supabase
+          .from('visits')
+          .insert({
+            user_id: user.id,
+            company_id: companyId,
+            status: next,
+            visited_at: next === 'visited' ? new Date().toISOString() : null,
+          })
+          .select('id')
+          .single();
+        if (error) throw new Error(error.message);
+        setVisitId(data.id);
+      }
+    } catch (e) {
+      Alert.alert('Eroare', (e as Error).message);
+      setStatus(previous);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openWebsite = () => {
+    if (!company?.website) return;
+    const url = company.website.startsWith('http') ? company.website : `https://${company.website}`;
+    Linking.openURL(url).catch(() =>
+      Alert.alert('Eroare', `Nu pot deschide ${url}`)
+    );
+  };
+
+  if (loading) {
     return (
-      <View style={[styles.container, styles.center]}>
-        <Text style={styles.body}>Company not found.</Text>
-      </View>
+      <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]}>
+        <View style={styles.center}>
+          <ActivityIndicator color={accents.companies.base} size="large" />
+        </View>
+      </SafeAreaView>
     );
   }
 
-  const status: VisitStatus = visit?.status ?? 'not_visited';
-
-  function ensureVisit() {
-    if (!visit) upsertVisit(companyId, { status: 'not_visited' });
+  if (!company) {
+    return (
+      <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]}>
+        <View style={styles.center}>
+          <Text style={{ color: palette.textDim }}>Expozant negăsit</Text>
+        </View>
+      </SafeAreaView>
+    );
   }
 
-  function applyStatus(s: VisitStatus) {
-    setStatus(companyId, s);
-  }
-
-  function saveNotes() {
-    ensureVisit();
-    setNotes(companyId, draftNotes);
-  }
-
-  function addRandomPhoto() {
-    ensureVisit();
-    const v = useStore.getState().getVisitForCompany(companyId);
-    if (!v) return;
-    const random = SAMPLE_PHOTOS[Math.floor(Math.random() * SAMPLE_PHOTOS.length)];
-    addImage(v.id, random);
-  }
-
-  async function generateSummary() {
-    setSummarizing(true);
-    setTimeout(() => {
-      setAiSummary(
-        companyId,
-        `• Strong showing of ${company.name} — refined materials and Italian craftsmanship.\n• ${
-          draftNotes.trim() ? 'Personal notes captured.' : 'No personal notes yet.'
-        }\n• Recommended follow-up: request catalog and lead times.`
-      );
-      setSummarizing(false);
-    }, 800);
-  }
+  const sc = statusColors[status];
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.headerCard}>
-        <Text style={styles.name}>{company.name}</Text>
-        <Text style={styles.meta}>
-          {[company.hall, company.standNumber, company.pavilion].filter(Boolean).join(' · ')}
-        </Text>
-        <StatusPill status={status} />
-        <View style={styles.statusRow}>
-          <Button
-            label="Visited"
-            variant={status === 'visited' ? 'primary' : 'secondary'}
-            onPress={() => applyStatus('visited')}
-            style={{ flex: 1 }}
-          />
-          <Button
-            label="Follow-up"
-            variant={status === 'follow_up' ? 'primary' : 'secondary'}
-            onPress={() => applyStatus('follow_up')}
-            style={{ flex: 1 }}
-          />
+    <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['bottom']}>
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {/* Hero */}
+        <View style={[styles.hero, { backgroundColor: accents.companies.soft }]}>
+          <Text style={[styles.heroInitial, { color: accents.companies.deep }]}>
+            {company.name[0].toUpperCase()}
+          </Text>
         </View>
-      </View>
 
-      <View style={styles.tabBar}>
-        {(['info', 'photos', 'notes'] as const).map((t) => (
-          <Pressable key={t} onPress={() => setTab(t)} style={[styles.tab, tab === t && styles.tabActive]}>
-            <Text style={[styles.tabLabel, tab === t && styles.tabLabelActive]}>{t.toUpperCase()}</Text>
-          </Pressable>
-        ))}
-      </View>
+        <Text style={[styles.name, { color: palette.text }]}>{company.name}</Text>
+        {(company.hall || company.stand) ? (
+          <Text style={[styles.meta, { color: palette.textDim }]}>
+            📍 {[company.hall, company.stand].filter(Boolean).join(' · ')}
+          </Text>
+        ) : null}
 
-      {tab === 'info' && (
-        <View style={styles.section}>
-          {company.description && <Text style={styles.body}>{company.description}</Text>}
-          {company.website && (
-            <InfoRow label="Website" value={company.website} onPress={() => Linking.openURL(company.website!)} />
-          )}
-          {company.email && (
-            <InfoRow label="Email" value={company.email} onPress={() => Linking.openURL(`mailto:${company.email}`)} />
-          )}
-          {company.phone && (
-            <InfoRow label="Phone" value={company.phone} onPress={() => Linking.openURL(`tel:${company.phone}`)} />
-          )}
-        </View>
-      )}
+        {/* Visit status pill — tap to cycle */}
+        <Pressable
+          onPress={cycleStatus}
+          disabled={savingStatus}
+          style={({ pressed }) => [
+            styles.statusPill,
+            { backgroundColor: sc.bg },
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Text style={[styles.statusText, { color: sc.fg }]}>
+            {statusLabel[status]}
+          </Text>
+          <Text style={[styles.statusHint, { color: sc.fg, opacity: 0.6 }]}>
+            apasă pentru a schimba
+          </Text>
+        </Pressable>
 
-      {tab === 'photos' && (
-        <View style={styles.section}>
-          <Button label={Platform.OS === 'web' ? 'Add demo photo' : 'Add photo'} onPress={addRandomPhoto} />
-          <View style={styles.grid}>
-            {images.map((img) => (
-              <Image key={img.id} source={{ uri: img.uri }} style={styles.thumb} />
+        {/* Tags */}
+        {tags.length > 0 ? (
+          <View style={styles.tagsWrap}>
+            {tags.map((tag) => {
+              const f = flavorByName[tag.name] ?? tagFallback;
+              return (
+                <Pressable
+                  key={tag.id}
+                  onPress={() => nav.navigate('CompaniesByCategory', { tagId: tag.id, tagName: tag.name })}
+                  style={({ pressed }) => [
+                    styles.tag,
+                    { backgroundColor: f.bg },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.tagText, { color: f.fg }]}>{tag.name}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
+        {/* Description */}
+        {company.description ? (
+          <View style={[styles.section, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+            <Text style={[styles.sectionLabel, { color: palette.textDim }]}>DESPRE</Text>
+            <Text style={[styles.sectionBody, { color: palette.text }]}>
+              {company.description}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Actions */}
+        {company.website ? (
+          <View style={styles.actions}>
+            <Button
+              label="Deschide website"
+              icon={<Text style={{ fontSize: 16 }}>🌐</Text>}
+              onPress={openWebsite}
+              accent="companies"
+              variant="secondary"
+              fullWidth
+            />
+          </View>
+        ) : null}
+
+        {/* Contacts at this exhibitor */}
+        {contacts.length > 0 ? (
+          <View style={[styles.contactsCard, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+            <Text style={[styles.sectionLabel, { color: palette.textDim, padding: spacing.lg, paddingBottom: spacing.sm }]}>
+              CĂRȚI DE VIZITĂ ({contacts.length})
+            </Text>
+            {contacts.map((c, i) => (
+              <Pressable
+                key={c.id}
+                onPress={() => nav.navigate('ContactDetail', { contactId: c.id })}
+                style={({ pressed }) => [
+                  styles.contactRow,
+                  i > 0 && { borderTopColor: palette.divider, borderTopWidth: StyleSheet.hairlineWidth },
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <View style={[styles.contactAvatar, { backgroundColor: accents.contacts.soft }]}>
+                  <Text style={[styles.contactInitial, { color: accents.contacts.deep }]}>
+                    {(c.full_name?.[0] ?? '?').toUpperCase()}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.contactName, { color: palette.text }]} numberOfLines={1}>
+                    {c.full_name || 'Contact fără nume'}
+                  </Text>
+                  {c.role ? (
+                    <Text style={[styles.contactRole, { color: palette.textDim }]} numberOfLines={1}>
+                      {c.role}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={[styles.chev, { color: palette.textFaint }]}>›</Text>
+              </Pressable>
             ))}
           </View>
-        </View>
-      )}
-
-      {tab === 'notes' && (
-        <View style={styles.section}>
-          <TextInput
-            style={styles.notes}
-            value={draftNotes}
-            onChangeText={setDraftNotes}
-            onBlur={saveNotes}
-            multiline
-            placeholder="What stood out at this stand…"
-            placeholderTextColor={palette.textMuted}
-          />
-          <Button
-            label={summarizing ? 'Summarizing…' : 'Generate AI summary'}
-            variant="secondary"
-            onPress={generateSummary}
-            loading={summarizing}
-          />
-          {visit?.aiSummary && (
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryHeader}>AI summary</Text>
-              <Text style={styles.body}>{visit.aiSummary}</Text>
-            </View>
-          )}
-        </View>
-      )}
-    </ScrollView>
-  );
-}
-
-function InfoRow({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
-  return (
-    <Pressable style={styles.infoRow} onPress={onPress}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue} numberOfLines={1}>
-        {value}
-      </Text>
-    </Pressable>
+        ) : null}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: palette.bg },
-  content: { padding: space.lg, paddingBottom: space.xxl, gap: space.lg },
-  center: { justifyContent: 'center', alignItems: 'center' },
-  headerCard: {
-    backgroundColor: palette.bgCard,
-    borderRadius: radius.xl,
-    padding: space.lg,
-    gap: space.sm,
-    ...shadow.card,
+  flex:   { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  scroll: { padding: spacing.lg, gap: spacing.md, alignItems: 'center', paddingBottom: spacing.xxl },
+
+  hero: {
+    width: 96, height: 96, borderRadius: radius.xl,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: spacing.md, marginBottom: spacing.sm,
   },
-  name: { ...font.display, color: palette.text },
-  meta: { ...font.caption, color: palette.textDim },
-  statusRow: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
-  tabBar: {
+  heroInitial: { fontSize: 44, fontWeight: '700' },
+
+  name: { ...typography.title, textAlign: 'center' },
+  meta: { ...typography.body },
+
+  statusPill: {
     flexDirection: 'row',
-    backgroundColor: palette.bgElevated,
-    borderRadius: radius.md,
-    padding: 4,
-    gap: 4,
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
   },
-  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: radius.sm },
-  tabActive: { backgroundColor: palette.bgCard },
-  tabLabel: { ...font.caption, color: palette.textDim, fontWeight: '700', letterSpacing: 0.5 },
-  tabLabelActive: { color: palette.text },
-  section: { gap: space.md },
-  body: { ...font.body, color: palette.text, lineHeight: 24 },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: space.sm },
-  infoLabel: { ...font.body, color: palette.textDim },
-  infoValue: { ...font.body, color: palette.accent, flex: 1, textAlign: 'right' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm },
-  thumb: { width: '32%', aspectRatio: 1, borderRadius: radius.md, backgroundColor: palette.bgElevated },
-  notes: {
-    minHeight: 160,
-    backgroundColor: palette.bgElevated,
+  statusText: { ...typography.bodyBold },
+  statusHint: { ...typography.caption },
+
+  tagsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  tag: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+  },
+  tagText: { ...typography.caption, fontWeight: '600' },
+
+  section: {
+    alignSelf: 'stretch',
     borderRadius: radius.lg,
-    padding: space.md,
-    color: palette.text,
-    ...font.body,
-    textAlignVertical: 'top',
     borderWidth: 1,
-    borderColor: palette.border,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
-  summaryCard: {
-    backgroundColor: palette.bgCard,
+  sectionLabel: { ...typography.micro },
+  sectionBody:  { ...typography.body, lineHeight: 22 },
+
+  actions: { alignSelf: 'stretch', marginTop: spacing.sm, gap: spacing.sm },
+
+  contactsCard: {
+    alignSelf: 'stretch',
     borderRadius: radius.lg,
-    padding: space.md,
-    gap: space.xs,
+    borderWidth: 1,
+    marginTop: spacing.md,
   },
-  summaryHeader: { ...font.caption, color: palette.accent, fontWeight: '700', letterSpacing: 0.5 },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  contactAvatar: {
+    width: 40, height: 40, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  contactInitial: { ...typography.bodyBold },
+  contactName:    { ...typography.bodyBold },
+  contactRole:    { ...typography.caption, marginTop: 2 },
+  chev:           { fontSize: 24, marginLeft: spacing.sm },
 });

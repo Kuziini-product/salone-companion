@@ -1,98 +1,106 @@
 // summarize-visit
-// Body: { visit_id: string }
-// Returns: { summary: string }
+// Generates a short prose recap of a visit, then persists it to
+// visits.ai_summary. Uses Claude Haiku 4.5 — cheap and fast.
 //
-// Pulls notes + voice transcripts + image captions for a visit, asks Haiku
-// for a 3-bullet recap. Persists to visits.ai_summary.
+// POST { visit_id: string }
+//
+// Returns:
+//   { summary: string, persisted: boolean }
+//
+// Authorisation: the call uses the user's JWT, so RLS prevents reading or
+// writing another user's visit.
 
-import { corsHeaders, handleOptions } from '../_shared/cors.ts';
-import { getServiceClient, getUserId } from '../_shared/supabase.ts';
+import {
+  corsHeaders, errorResponse, jsonResponse, readJson,
+  userClient, anthropicTextCall, MODELS,
+} from '../_shared/utils.ts';
 
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
-const MODEL = 'claude-haiku-4-5-20251001';
+interface Body {
+  visit_id: string;
+}
 
 Deno.serve(async (req) => {
-  const optionsResponse = handleOptions(req);
-  if (optionsResponse) return optionsResponse;
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST')   return errorResponse('Method not allowed', 405);
 
+  const body = await readJson<Body>(req);
+  if (!body?.visit_id) return errorResponse('visit_id is required');
+
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!apiKey) return errorResponse('ANTHROPIC_API_KEY missing', 500);
+
+  const supabase = userClient(req);
+
+  // 1. Pull the visit + its company.
+  const { data: visit, error: visitErr } = await supabase
+    .from('visits')
+    .select('id, status, rating, notes, visited_at, company:companies(name, hall, stand)')
+    .eq('id', body.visit_id)
+    .maybeSingle();
+
+  if (visitErr) return errorResponse(`DB error: ${visitErr.message}`, 500);
+  if (!visit)   return errorResponse('Visit not found', 404);
+
+  // 2. Pull voice-note transcripts and image captions for context.
+  const [{ data: voice }, { data: images }, { data: contacts }] = await Promise.all([
+    supabase.from('voice_notes').select('transcript').eq('visit_id', body.visit_id),
+    supabase.from('images').select('caption').eq('visit_id', body.visit_id),
+    supabase.from('contacts').select('full_name, role, company_name').eq('visit_id', body.visit_id),
+  ]);
+
+  const transcripts = (voice ?? [])
+    .map((v) => v.transcript?.trim())
+    .filter(Boolean)
+    .join('\n---\n');
+  const captions = (images ?? [])
+    .map((i) => i.caption?.trim())
+    .filter(Boolean)
+    .join('\n');
+  const contactList = (contacts ?? [])
+    .map((c) => [c.full_name, c.role, c.company_name].filter(Boolean).join(' — '))
+    .filter(Boolean)
+    .join('\n');
+
+  // 3. Build the prompt.
+  const company = visit.company as unknown as { name: string; hall: string; stand: string } | null;
+  const userPrompt = [
+    `Company: ${company?.name ?? 'unknown'} (${company?.hall ?? '?'} / ${company?.stand ?? '?'})`,
+    `Status: ${visit.status}`,
+    visit.rating ? `My rating: ${visit.rating}/5` : '',
+    visit.notes  ? `My notes:\n${visit.notes}` : '',
+    transcripts  ? `Voice notes (transcribed):\n${transcripts}` : '',
+    captions     ? `Photo captions:\n${captions}` : '',
+    contactList  ? `Contacts collected:\n${contactList}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  let summary: string;
   try {
-    const userId = await getUserId(req);
-    if (!userId) return json({ error: 'Unauthorized' }, 401);
-
-    const { visit_id } = await req.json();
-    if (!visit_id) return json({ error: 'visit_id required' }, 400);
-
-    const supabase = getServiceClient();
-
-    const { data: visit, error: visitErr } = await supabase
-      .from('visits')
-      .select('id, user_id, notes, company_id, companies(name, description)')
-      .eq('id', visit_id)
-      .single();
-
-    if (visitErr || !visit) return json({ error: 'Visit not found' }, 404);
-    if (visit.user_id !== userId) return json({ error: 'Forbidden' }, 403);
-
-    const [{ data: voice }, { data: imgs }] = await Promise.all([
-      supabase.from('voice_notes').select('transcript').eq('visit_id', visit_id),
-      supabase.from('images').select('caption').eq('visit_id', visit_id),
-    ]);
-
-    const company = visit.companies as { name: string; description: string } | null;
-    const transcripts = (voice ?? []).map((v) => v.transcript).filter(Boolean).join('\n');
-    const captions = (imgs ?? []).map((i) => i.caption).filter(Boolean).join('\n');
-
-    const inputText = [
-      company ? `Company: ${company.name}\n${company.description ?? ''}` : '',
-      visit.notes ? `Notes:\n${visit.notes}` : '',
-      transcripts ? `Voice notes:\n${transcripts}` : '',
-      captions ? `Photo captions:\n${captions}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-
-    if (!inputText.trim()) {
-      return json({ summary: '' });
-    }
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 400,
-        system:
-          'You write concise post-visit recaps for a furniture-fair attendee. Output exactly 3 short bullet points. No preamble.',
-        messages: [{ role: 'user', content: inputText }],
-      }),
+    summary = await anthropicTextCall({
+      apiKey,
+      model: MODELS.fast,
+      systemPrompt: [
+        'You write concise post-visit recaps for someone walking the Salone del Mobile design fair.',
+        'Tone: factual, professional, second person ("you"). 4-6 sentences max.',
+        'Mention concrete details when present: products discussed, takeaways, follow-ups.',
+        'Do NOT invent details that are not in the source. If the source is sparse, write a short summary anyway.',
+        'Return only the summary text — no headings, no preamble.',
+      ].join('\n'),
+      userPrompt,
+      maxTokens: 400,
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('Anthropic error', response.status, text);
-      return json({ error: 'Summary failed' }, 502);
-    }
-
-    const aiResult = await response.json();
-    const textBlock = aiResult.content?.find((b: { type: string }) => b.type === 'text');
-    const summary = textBlock?.text ?? '';
-
-    await supabase.from('visits').update({ ai_summary: summary }).eq('id', visit_id);
-
-    return json({ summary });
-  } catch (err) {
-    console.error(err);
-    return json({ error: String(err) }, 500);
+  } catch (e) {
+    return errorResponse(`Summary call failed: ${(e as Error).message}`, 502);
   }
-});
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
+  summary = summary.trim();
+
+  // 4. Persist.
+  let persisted = true;
+  const { error: upErr } = await supabase
+    .from('visits')
+    .update({ ai_summary: summary })
+    .eq('id', body.visit_id);
+  if (upErr) persisted = false;
+
+  return jsonResponse({ summary, persisted });
+});

@@ -1,80 +1,110 @@
 // export
-// GET ?format=csv|json
-// Returns: CSV/JSON of the user's visits + linked companies + contacts.
+// Returns the calling user's visits + linked notes/contacts as a downloadable
+// CSV or JSON file. RLS automatically scopes the data to this user.
+//
+// GET /export?format=csv|json (default: csv)
+//
+// Response:
+//   200 with file body. Sets Content-Disposition for browser download.
 
-import { corsHeaders, handleOptions } from '../_shared/cors.ts';
-import { getServiceClient, getUserId } from '../_shared/supabase.ts';
+import {
+  corsHeaders, errorResponse, userClient,
+} from '../_shared/utils.ts';
 
 Deno.serve(async (req) => {
-  const optionsResponse = handleOptions(req);
-  if (optionsResponse) return optionsResponse;
-
-  const userId = await getUserId(req);
-  if (!userId) return new Response('Unauthorized', { status: 401, headers: corsHeaders });
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'GET')    return errorResponse('Method not allowed', 405);
 
   const url = new URL(req.url);
-  const format = url.searchParams.get('format') ?? 'csv';
+  const format = (url.searchParams.get('format') ?? 'csv').toLowerCase();
+  if (!['csv', 'json'].includes(format)) {
+    return errorResponse('format must be csv or json');
+  }
 
-  const supabase = getServiceClient();
+  const supabase = userClient(req);
 
-  const { data: visits } = await supabase
+  // Pull everything for this user. We denormalise on the fly so the export is
+  // useful in a spreadsheet without further joining.
+  const { data: visits, error } = await supabase
     .from('visits')
-    .select(
-      'id, status, notes, ai_summary, visited_at, companies(name, stand_number, hall, pavilion, website, email, phone)'
-    )
-    .eq('user_id', userId);
+    .select(`
+      id,
+      status,
+      rating,
+      notes,
+      ai_summary,
+      visited_at,
+      created_at,
+      company:companies(name, hall, stand, website),
+      contacts(full_name, role, email, phone, company_name),
+      voice_notes(transcript)
+    `)
+    .order('visited_at', { ascending: false, nullsFirst: false });
 
-  const { data: contacts } = await supabase
-    .from('contacts')
-    .select('full_name, role, email, phone, company_id, companies(name)')
-    .eq('user_id', userId);
+  if (error) return errorResponse(`DB error: ${error.message}`, 500);
+
+  const rows = (visits ?? []).map((v) => {
+    const company = v.company as unknown as
+      { name?: string; hall?: string; stand?: string; website?: string } | null;
+    const contactList = (v.contacts as Array<{
+      full_name?: string; role?: string; email?: string; phone?: string; company_name?: string;
+    }> | undefined ?? [])
+      .map((c) => [c.full_name, c.role, c.email, c.phone, c.company_name].filter(Boolean).join(' | '))
+      .join(' ; ');
+    const voiceList = (v.voice_notes as Array<{ transcript?: string }> | undefined ?? [])
+      .map((vn) => vn.transcript?.trim()).filter(Boolean).join(' ; ');
+
+    return {
+      visit_id:    v.id,
+      company:     company?.name ?? '',
+      hall:        company?.hall ?? '',
+      stand:       company?.stand ?? '',
+      website:     company?.website ?? '',
+      status:      v.status,
+      rating:      v.rating ?? '',
+      visited_at:  v.visited_at ?? '',
+      notes:       v.notes ?? '',
+      ai_summary:  v.ai_summary ?? '',
+      contacts:    contactList,
+      voice_notes: voiceList,
+    };
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
 
   if (format === 'json') {
-    return new Response(JSON.stringify({ visits, contacts }, null, 2), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    return new Response(JSON.stringify(rows, null, 2), {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="salone-visits-${today}.json"`,
+      },
     });
   }
 
   // CSV
-  const visitsCsv = toCsv(
-    ['Company', 'Stand', 'Hall', 'Status', 'Visited At', 'Notes', 'Summary', 'Website', 'Email', 'Phone'],
-    (visits ?? []).map((v) => {
-      const c = v.companies as Record<string, string> | null;
-      return [
-        c?.name ?? '',
-        c?.stand_number ?? '',
-        c?.hall ?? '',
-        v.status,
-        v.visited_at ?? '',
-        v.notes ?? '',
-        v.ai_summary ?? '',
-        c?.website ?? '',
-        c?.email ?? '',
-        c?.phone ?? '',
-      ];
-    })
-  );
+  const headers = [
+    'visit_id','company','hall','stand','website','status','rating',
+    'visited_at','notes','ai_summary','contacts','voice_notes',
+  ];
+  const lines = [
+    headers.join(','),
+    ...rows.map((r) => headers.map((h) => csvCell((r as Record<string, unknown>)[h])).join(',')),
+  ];
+  const csv = lines.join('\n');
 
-  const contactsCsv = toCsv(
-    ['Name', 'Role', 'Email', 'Phone', 'Company'],
-    (contacts ?? []).map((c) => {
-      const co = c.companies as { name: string } | null;
-      return [c.full_name ?? '', c.role ?? '', c.email ?? '', c.phone ?? '', co?.name ?? ''];
-    })
-  );
-
-  const body = `# VISITS\n${visitsCsv}\n\n# CONTACTS\n${contactsCsv}\n`;
-
-  return new Response(body, {
+  return new Response(csv, {
     headers: {
       ...corsHeaders,
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="salone-export.csv"',
+      'Content-Disposition': `attachment; filename="salone-visits-${today}.csv"`,
     },
   });
 });
 
-function toCsv(headers: string[], rows: string[][]): string {
-  const escape = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
-  return [headers.map(escape).join(','), ...rows.map((r) => r.map(escape).join(','))].join('\n');
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  // Always quote and double internal quotes — safe for any string.
+  return `"${s.replace(/"/g, '""')}"`;
 }
