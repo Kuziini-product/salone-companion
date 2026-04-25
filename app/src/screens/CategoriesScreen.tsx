@@ -90,6 +90,7 @@ export function CategoriesScreen() {
           contentContainerStyle={styles.listContent}
           ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
           renderItem={({ item }) => {
+            const Icon = item.Icon;
             const count = counts[item.id] ?? 0;
             return (
               <Pressable
@@ -98,32 +99,28 @@ export function CategoriesScreen() {
                   {
                     backgroundColor: palette.bgElevated,
                     borderColor: palette.border,
-                    shadowColor: palette.shadow,
+                    shadowColor: item.fg,
                   },
-                  pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
+                  pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
                 ]}
                 onPress={() => open(item)}
               >
-                {/* Left vertical accent bar */}
-                <View style={[styles.cardAccent, { backgroundColor: item.fg }]} />
+                {/* Soft color halo at top */}
+                <View style={[styles.cardHalo, { backgroundColor: item.bg }]} />
 
-                <View style={styles.cardBody}>
-                  {/* Count chip top-right */}
-                  <View style={styles.cardTop}>
-                    <View style={[styles.countChip, { backgroundColor: item.bg }]}>
-                      <Text style={[styles.countChipText, { color: item.fg }]}>{count}</Text>
-                    </View>
-                  </View>
+                {/* Centered icon bubble */}
+                <View style={[styles.iconBubble, { backgroundColor: item.bg, borderColor: item.fg }]}>
+                  <Icon size={26} color={item.fg} strokeWidth={1.75} />
+                </View>
 
-                  {/* Title — large display, breathing room */}
-                  <View style={styles.cardTitleBlock}>
-                    <Text style={[styles.cardName, { color: palette.text }]} numberOfLines={2}>
-                      {item.name}
-                    </Text>
-                    <Text style={[styles.cardSub, { color: palette.textDim }]}>
-                      {count === 1 ? 'expozant' : 'expozanți'}
-                    </Text>
-                  </View>
+                {/* Centered title + count */}
+                <Text style={[styles.cardName, { color: palette.text }]} numberOfLines={2}>
+                  {item.name}
+                </Text>
+                <View style={[styles.countPill, { backgroundColor: item.bg }]}>
+                  <Text style={[styles.countPillText, { color: item.fg }]}>
+                    {count} {count === 1 ? 'expozant' : 'expozanți'}
+                  </Text>
                 </View>
               </Pressable>
             );
@@ -183,28 +180,44 @@ const styles = StyleSheet.create({
 
   card: {
     flex: 1,
-    minHeight: 140,
+    minHeight: 168,
     borderRadius: radius.xl,
     borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
-    flexDirection: 'row',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    gap: spacing.sm,
+    // Soft colored shadow tinted by the bucket accent.
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 4,
   },
-  cardAccent: { width: 4, height: '100%' },
-  cardBody:   { flex: 1, padding: spacing.lg, justifyContent: 'space-between' },
-  cardTop:    { flexDirection: 'row', justifyContent: 'flex-end' },
-  countChip:  {
-    paddingHorizontal: 10, paddingVertical: 3,
+  // Subtle color halo at the top edge of each card for personality.
+  cardHalo: {
+    position: 'absolute', top: 0, left: 0, right: 0, height: 56,
+    opacity: 0.35,
+  },
+  iconBubble: {
+    width: 56, height: 56, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5,
+    marginBottom: spacing.xs,
+  },
+  cardName: {
+    ...typography.subheading,
+    letterSpacing: -0.2,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  countPill: {
+    paddingHorizontal: spacing.sm, paddingVertical: 4,
     borderRadius: radius.pill,
-    minWidth: 28, alignItems: 'center',
+    marginTop: 2,
   },
-  countChipText: { fontWeight: '700', fontSize: 12 },
-  cardTitleBlock: { gap: 2 },
-  cardName: { ...typography.heading, letterSpacing: -0.3, lineHeight: 24 },
-  cardSub:  { ...typography.caption },
+  countPillText: { ...typography.caption, fontWeight: '700' },
 
   footer: {
     textAlign: 'center',
