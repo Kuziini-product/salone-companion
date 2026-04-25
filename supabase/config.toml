@@ -1,0 +1,55 @@
+project_id = "salone-companion"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[storage.buckets.company-images]
+public = false
+file_size_limit = "20MiB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/heic"]
+
+[storage.buckets.business-cards]
+public = false
+file_size_limit = "10MiB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/heic"]
+
+[storage.buckets.voice-notes]
+public = false
+file_size_limit = "10MiB"
+allowed_mime_types = ["audio/mpeg", "audio/mp4", "audio/m4a", "audio/wav", "audio/webm"]
+
+[auth]
+enabled = true
+site_url = "exp://localhost:19000"
+additional_redirect_urls = ["exp://localhost:19000", "salone://"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[edge_runtime]
+enabled = true
+policy = "oneshot"
+
+[analytics]
+enabled = false

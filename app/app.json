@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Salone Companion",
+    "slug": "salone-companion",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "salone",
+    "userInterfaceStyle": "automatic",
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.salone.companion" },
+    "android": { "package": "com.salone.companion" },
+    "web": { "bundler": "metro", "output": "single" },
+    "plugins": []
+  }
+}
