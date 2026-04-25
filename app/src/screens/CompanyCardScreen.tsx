@@ -296,20 +296,6 @@ export function CompanyCardScreen() {
           style={[styles.hero, { backgroundColor: '#0F172A', borderColor: palette.border }]}
           imageStyle={{ borderRadius: radius.xl }}
         >
-          {/* Logo badge top-left */}
-          <View style={styles.logoBadge}>
-            {logoCandidate ? (
-              <Image
-                source={{ uri: logoCandidate }}
-                style={styles.logoBadgeImg}
-                resizeMode="contain"
-                onError={() => setLogoBroken(true)}
-              />
-            ) : (
-              <Text style={styles.logoBadgeInitial}>{company.name[0].toUpperCase()}</Text>
-            )}
-          </View>
-
           {/* Favorite top-right */}
           <Pressable
             onPress={toggleFavorite}
@@ -322,6 +308,22 @@ export function CompanyCardScreen() {
           </Pressable>
 
         </ImageBackground>
+
+        {/* Logo (centered, overlaps the bottom of the hero so it floats) */}
+        <View style={styles.logoUnderHeroWrap}>
+          <View style={styles.logoUnderHero}>
+            {logoCandidate ? (
+              <Image
+                source={{ uri: logoCandidate }}
+                style={styles.logoUnderHeroImg}
+                resizeMode="contain"
+                onError={() => setLogoBroken(true)}
+              />
+            ) : (
+              <Text style={styles.logoUnderHeroInitial}>{company.name[0].toUpperCase()}</Text>
+            )}
+          </View>
+        </View>
 
         {/* Name + flag centered under hero */}
         <View style={styles.nameUnderHero}>
@@ -547,18 +549,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: 'hidden',
   },
-  logoBadge: {
-    position: 'absolute', top: spacing.md, left: spacing.md,
-    width: 96, height: 96, borderRadius: radius.xl,
-    backgroundColor: '#FFFFFF',         // fully opaque for max contrast
+  // Floating logo that overlaps the bottom edge of the hero photo.
+  logoUnderHeroWrap: {
+    alignItems: 'center',
+    marginTop: -42,            // pull up so the badge straddles the photo edge
+    marginBottom: spacing.xs,
+  },
+  logoUnderHero: {
+    width: 84, height: 84, borderRadius: radius.xl,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center', justifyContent: 'center',
     padding: spacing.sm,
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.95)',
-    shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
+    borderWidth: 3, borderColor: '#FFFFFF',
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
-  logoBadgeImg:     { width: '100%', height: '100%' },
-  logoBadgeInitial: { fontSize: 44, fontWeight: '800', color: '#0F172A', letterSpacing: -1 },
+  logoUnderHeroImg:     { width: '100%', height: '100%' },
+  logoUnderHeroInitial: { fontSize: 36, fontWeight: '800', color: '#0F172A', letterSpacing: -1 },
   // Name + flag block centered under the hero photo.
   nameUnderHero: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
