@@ -36,7 +36,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnon, {
     // Web reads access_token from URL hash after magic-link redirect.
     // Native uses deep links handled by expo-linking instead.
     detectSessionInUrl: Platform.OS === 'web',
-    flowType: 'pkce',
   },
 });
 
