@@ -555,15 +555,16 @@ const styles = StyleSheet.create({
   },
   logoBadge: {
     position: 'absolute', top: spacing.md, left: spacing.md,
-    width: 64, height: 64, borderRadius: radius.lg,
-    backgroundColor: 'rgba(255,255,255,0.95)',
+    width: 96, height: 96, borderRadius: radius.xl,
+    backgroundColor: '#FFFFFF',         // fully opaque for max contrast
     alignItems: 'center', justifyContent: 'center',
-    padding: spacing.xs,
-    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    padding: spacing.sm,
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.95)',
+    shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
   logoBadgeImg:     { width: '100%', height: '100%' },
-  logoBadgeInitial: { fontSize: 28, fontWeight: '700', color: '#0F172A' },
+  logoBadgeInitial: { fontSize: 44, fontWeight: '800', color: '#0F172A', letterSpacing: -1 },
   heroFooter: {
     padding: spacing.lg,
     paddingTop: spacing.xl,
