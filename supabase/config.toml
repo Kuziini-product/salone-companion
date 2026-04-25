@@ -38,29 +38,12 @@ enable_confirmations   = true
 subject = "Your Salone Companion sign-in link"
 
 [storage]
-enabled        = true
+enabled = true
 file_size_limit = "50MiB"
 
-[[storage.buckets]]
-id     = "company-images"
-name   = "company-images"
-public = false
-file_size_limit = "20MiB"
-allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/heic"]
-
-[[storage.buckets]]
-id     = "business-cards"
-name   = "business-cards"
-public = false
-file_size_limit = "10MiB"
-allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/heic"]
-
-[[storage.buckets]]
-id     = "voice-notes"
-name   = "voice-notes"
-public = false
-file_size_limit = "30MiB"
-allowed_mime_types = ["audio/m4a", "audio/mp4", "audio/mpeg", "audio/wav", "audio/webm", "audio/ogg"]
+# Buckets are created in production via the Storage REST API (see import-salone.mjs).
+# The newer config.toml schema uses [storage.buckets.<name>] sub-tables;
+# we keep this file minimal to stay compatible with future CLI versions.
 
 [edge_runtime]
 enabled = true

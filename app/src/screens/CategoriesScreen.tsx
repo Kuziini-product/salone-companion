@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, FlatList, ImageBackground, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -87,14 +87,13 @@ export function CategoriesScreen() {
           contentContainerStyle={styles.listContent}
           ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
           renderItem={({ item }) => {
-            const Icon = item.Icon;
             const count = counts[item.id] ?? 0;
             return (
               <Pressable
                 style={({ pressed }) => [
                   styles.card,
                   {
-                    backgroundColor: palette.mode === 'dark' ? palette.bgElevated : '#FFFFFF',
+                    backgroundColor: palette.bgElevated,
                     borderColor: palette.border,
                     shadowColor: palette.shadow,
                   },
@@ -102,16 +101,26 @@ export function CategoriesScreen() {
                 ]}
                 onPress={() => open(item)}
               >
-                <View style={[styles.iconBubble, { backgroundColor: item.bg }]}>
-                  <Icon size={28} color={item.fg} strokeWidth={1.75} />
-                </View>
-                <View style={{ marginTop: spacing.md }}>
+                {/* Top: real photo with subtle overlay */}
+                <ImageBackground
+                  source={{ uri: item.photo }}
+                  style={styles.photo}
+                  imageStyle={styles.photoImage}
+                >
+                  <View style={[styles.photoOverlay, { backgroundColor: 'rgba(0,0,0,0.15)' }]} />
+                  <View style={[styles.photoBadge, { backgroundColor: item.fg }]}>
+                    <Text style={styles.photoBadgeText}>{count}</Text>
+                  </View>
+                </ImageBackground>
+
+                {/* Bottom: title block */}
+                <View style={styles.cardBottom}>
                   <Text style={[styles.cardName, { color: palette.text }]} numberOfLines={2}>
                     {item.name}
                   </Text>
-                  <View style={[styles.cardCountPill, { backgroundColor: item.bg }]}>
-                    <Text style={[styles.cardCount, { color: item.fg }]}>{count}</Text>
-                  </View>
+                  <Text style={[styles.cardSub, { color: palette.textDim }]}>
+                    {count === 1 ? 'expozant' : 'expozanți'}
+                  </Text>
                 </View>
               </Pressable>
             );
@@ -171,26 +180,35 @@ const styles = StyleSheet.create({
 
   card: {
     flex: 1,
-    minHeight: 168,
+    minHeight: 200,
     borderRadius: radius.xl,
-    padding: spacing.lg,
     borderWidth: 1,
+    overflow: 'hidden',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.10,
     shadowRadius: 14,
-    elevation: 3,
+    elevation: 4,
   },
-  iconBubble: {
-    width: 56, height: 56, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
+  photo: {
+    height: 130,
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
   },
-  cardName: { ...typography.subheading, marginBottom: 6 },
-  cardCountPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10, paddingVertical: 3,
+  photoImage: { resizeMode: 'cover' },
+  photoOverlay: { ...StyleSheet.absoluteFillObject },
+  photoBadge: {
+    margin: spacing.sm,
+    paddingHorizontal: 10, paddingVertical: 4,
     borderRadius: radius.pill,
+    minWidth: 32, alignItems: 'center',
   },
-  cardCount: { ...typography.caption, fontWeight: '700' },
+  photoBadgeText: { color: '#FFFFFF', fontWeight: '700', fontSize: 12 },
+  cardBottom: {
+    padding: spacing.md,
+    gap: 2,
+  },
+  cardName: { ...typography.subheading, lineHeight: 20 },
+  cardSub:  { ...typography.caption },
 
   footer: {
     textAlign: 'center',

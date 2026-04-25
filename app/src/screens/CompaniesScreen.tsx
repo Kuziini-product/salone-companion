@@ -1,8 +1,9 @@
 // CompaniesScreen — full-catalog browser with extended search.
 // Search hits name + category + products (server-side ilike OR).
+// Two image-search buttons (camera + gallery) trigger searchByImage.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Search, Camera, Image as ImageIcon } from 'lucide-react-native';
@@ -11,6 +12,8 @@ import { EmptyState } from '../components/EmptyState';
 import { BrandLogo } from '../components/BrandLogo';
 import { supabase } from '../lib/supabase';
 import { countryFlagEmoji } from '../lib/brandHelpers';
+import { pickImageWeb } from '../lib/pickImage';
+import { searchByImage } from '../lib/imageSearch';
 
 interface Company {
   id: string; name: string; hall: string | null; stand: string | null;
@@ -79,6 +82,27 @@ export function CompaniesScreen() {
     setMore(false);
   }, [loadingMore, hasMore, rows.length, buildQuery]);
 
+  // Image-based search: pick from camera or gallery, send to match-logo.
+  const [imageBusy, setImageBusy] = useState(false);
+  async function imageSearch(source: 'camera' | 'gallery') {
+    if (imageBusy) return;
+    const uri = await pickImageWeb(source);
+    if (!uri) return;
+    setImageBusy(true);
+    try {
+      const result = await searchByImage(uri);
+      nav.navigate('MatchResult', {
+        previewUri:  result.previewUri,
+        storagePath: result.storagePath,
+        matches:     result.matches,
+      });
+    } catch (e) {
+      Alert.alert('Recunoaștere eșuată', (e as Error).message);
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['top']}>
       <View style={styles.header}>
@@ -111,35 +135,29 @@ export function CompaniesScreen() {
           style={({ pressed }) => [
             styles.iconBtn,
             { backgroundColor: palette.bgElevated, borderColor: palette.border },
-            pressed && { opacity: 0.7 },
+            pressed && !imageBusy && { opacity: 0.7 },
+            imageBusy && { opacity: 0.4 },
           ]}
-          onPress={() =>
-            Alert.alert(
-              'Caută cu o poză',
-              'Funcția de căutare prin imagine necesită o cheie API Anthropic. ' +
-              'Configurează cheia în Profil → Setări AI și revino.',
-            )
-          }
+          disabled={imageBusy}
+          onPress={() => imageSearch('gallery')}
           accessibilityLabel="Caută din galerie"
         >
-          <ImageIcon size={20} color={accents.companies.base} strokeWidth={2} />
+          {imageBusy ? <ActivityIndicator size="small" color={accents.companies.base} /> :
+            <ImageIcon size={20} color={accents.companies.base} strokeWidth={2} />}
         </Pressable>
         <Pressable
           style={({ pressed }) => [
             styles.iconBtn,
             { backgroundColor: palette.bgElevated, borderColor: palette.border },
-            pressed && { opacity: 0.7 },
+            pressed && !imageBusy && { opacity: 0.7 },
+            imageBusy && { opacity: 0.4 },
           ]}
-          onPress={() =>
-            Alert.alert(
-              'Fotografiază pentru a căuta',
-              'Funcția de căutare prin poza directă necesită o cheie API Anthropic. ' +
-              'Configurează cheia în Profil → Setări AI și revino.',
-            )
-          }
+          disabled={imageBusy}
+          onPress={() => imageSearch('camera')}
           accessibilityLabel="Fotografiază"
         >
-          <Camera size={20} color={accents.capture.base} strokeWidth={2} />
+          {imageBusy ? <ActivityIndicator size="small" color={accents.capture.base} /> :
+            <Camera size={20} color={accents.capture.base} strokeWidth={2} />}
         </Pressable>
       </View>
 

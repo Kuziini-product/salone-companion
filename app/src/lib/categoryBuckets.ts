@@ -12,11 +12,17 @@ export interface Bucket {
   id:    string;
   name:  string;
   Icon:  LucideIcon;
-  bg:    string;          // soft tint background
-  fg:    string;          // primary accent (icon, text)
+  bg:    string;          // soft tint background (fallback if photo fails)
+  fg:    string;          // primary accent
+  photo: string;          // hero photo URL (Unsplash CDN)
   apply: (q: any) => any;
   order: number;
 }
+
+// Pre-curated Unsplash photo IDs. The format is the direct CDN URL with
+// a width/height crop hint so they download fast.
+const photo = (id: string) =>
+  `https://images.unsplash.com/photo-${id}?w=800&h=600&fit=crop&q=80&auto=format`;
 
 const C = {
   amber:  { bg: '#FEF3C7', fg: '#B45309' },
@@ -33,28 +39,50 @@ const C = {
 
 export const BUCKETS: Bucket[] = [
   // ---- Top-level (1:1 with event_code) ------------------------------------
-  { id: 'event:SMI', name: 'Mobilier general',     Icon: Sofa,        ...C.blue,   order: 1, apply: (q) => q.eq('event_code', 'SMI') },
-  { id: 'event:EUC', name: 'Bucătărie',            Icon: ChefHat,     ...C.red,    order: 2, apply: (q) => q.eq('event_code', 'EUC') },
-  { id: 'event:FTK', name: 'Tehnologie bucătărie', Icon: Wrench,      ...C.orange, order: 3, apply: (q) => q.eq('event_code', 'FTK') },
-  { id: 'event:ARB', name: 'Baie',                 Icon: ShowerHead,  ...C.teal,   order: 4, apply: (q) => q.eq('event_code', 'ARB') },
-  { id: 'event:EIM', name: 'Iluminat',             Icon: Lightbulb,   ...C.amber,  order: 5, apply: (q) => q.eq('event_code', 'EIM') },
-  { id: 'event:CDA', name: 'Workplace & contract', Icon: Briefcase,   ...C.indigo, order: 6, apply: (q) => q.eq('event_code', 'CDA') },
-  { id: 'event:RAR', name: 'Piese unice',          Icon: Crown,       ...C.pink,   order: 7, apply: (q) => q.eq('event_code', 'RAR') },
-  { id: 'event:S_P', name: 'Tineri designeri',     Icon: Sparkles,    ...C.purple, order: 8, apply: (q) => q.eq('event_code', 'S_P') },
+  { id: 'event:SMI', name: 'Mobilier general',     Icon: Sofa,       ...C.blue,
+    photo: photo('1567538096630-e0c55bd6374c'),  // modern living room
+    order: 1, apply: (q) => q.eq('event_code', 'SMI') },
+  { id: 'event:EUC', name: 'Bucătărie',            Icon: ChefHat,    ...C.red,
+    photo: photo('1556909114-f6e7ad7d3136'),     // luxury kitchen
+    order: 2, apply: (q) => q.eq('event_code', 'EUC') },
+  { id: 'event:FTK', name: 'Tehnologie bucătărie', Icon: Wrench,     ...C.orange,
+    photo: photo('1556909195-4b8ab0bea6dc'),     // built-in oven
+    order: 3, apply: (q) => q.eq('event_code', 'FTK') },
+  { id: 'event:ARB', name: 'Baie',                 Icon: ShowerHead, ...C.teal,
+    photo: photo('1552321554-5fefe8c9ef14'),     // designer bathroom
+    order: 4, apply: (q) => q.eq('event_code', 'ARB') },
+  { id: 'event:EIM', name: 'Iluminat',             Icon: Lightbulb,  ...C.amber,
+    photo: photo('1513506003901-1e6a229e2d15'),  // pendant lamps
+    order: 5, apply: (q) => q.eq('event_code', 'EIM') },
+  { id: 'event:CDA', name: 'Workplace & contract', Icon: Briefcase,  ...C.indigo,
+    photo: photo('1497366216548-37526070297c'),  // office workspace
+    order: 6, apply: (q) => q.eq('event_code', 'CDA') },
+  { id: 'event:RAR', name: 'Piese unice',          Icon: Crown,      ...C.pink,
+    photo: photo('1505691938895-1758d7feb511'),  // gallery interior
+    order: 7, apply: (q) => q.eq('event_code', 'RAR') },
+  { id: 'event:S_P', name: 'Tineri designeri',     Icon: Sparkles,   ...C.purple,
+    photo: photo('1572021335469-31706a17aaef'),  // designer sketch / workshop
+    order: 8, apply: (q) => q.eq('event_code', 'S_P') },
 
   // ---- SMI sub-buckets ----------------------------------------------------
-  { id: 'kw:living',      name: 'Living & Dining',   Icon: Sofa,     ...C.blue,   order: 20,
-    apply: (q) => q.or('category_en.ilike.%living rooms%,category_en.ilike.%dining rooms%') },
-  { id: 'kw:bedroom',     name: 'Dormitor',          Icon: Bed,      ...C.purple, order: 21,
-    apply: (q) => q.ilike('category_en', '%bedrooms%') },
-  { id: 'kw:upholstered', name: 'Tapițerie & sofa',  Icon: Armchair, ...C.rose,   order: 22,
-    apply: (q) => q.ilike('category_en', '%upholstered furniture%') },
-  { id: 'kw:outdoor',     name: 'Outdoor',           Icon: Trees,    ...C.green,  order: 23,
-    apply: (q) => q.ilike('category_en', '%outdoor%') },
-  { id: 'kw:textile',     name: 'Textile & accesorii', Icon: Shirt,  ...C.pink,   order: 24,
-    apply: (q) => q.or('category_en.ilike.%textile%,category_en.ilike.%fabric%,category_en.ilike.%accessory%,category_en.ilike.%accessories%') },
-  { id: 'kw:office',      name: 'Birou',             Icon: Monitor,  ...C.indigo, order: 25,
-    apply: (q) => q.or('category_en.ilike.%office%,category_en.ilike.%contract%') },
+  { id: 'kw:living',      name: 'Living & Dining',   Icon: Sofa,     ...C.blue,
+    photo: photo('1555041469-a586c61ea9bc'),     // sofa in living
+    order: 20, apply: (q) => q.or('category_en.ilike.%living rooms%,category_en.ilike.%dining rooms%') },
+  { id: 'kw:bedroom',     name: 'Dormitor',          Icon: Bed,      ...C.purple,
+    photo: photo('1505693416388-ac5ce068fe85'),  // modern bedroom
+    order: 21, apply: (q) => q.ilike('category_en', '%bedrooms%') },
+  { id: 'kw:upholstered', name: 'Tapițerie & sofa',  Icon: Armchair, ...C.rose,
+    photo: photo('1567016432779-094069958ea5'),  // armchair detail
+    order: 22, apply: (q) => q.ilike('category_en', '%upholstered furniture%') },
+  { id: 'kw:outdoor',     name: 'Outdoor',           Icon: Trees,    ...C.green,
+    photo: photo('1604147495798-57beb5d6af73'),  // outdoor patio
+    order: 23, apply: (q) => q.ilike('category_en', '%outdoor%') },
+  { id: 'kw:textile',     name: 'Textile & accesorii', Icon: Shirt,  ...C.pink,
+    photo: photo('1528833882626-c4e84def8f72'),  // textile texture
+    order: 24, apply: (q) => q.or('category_en.ilike.%textile%,category_en.ilike.%fabric%,category_en.ilike.%accessory%,category_en.ilike.%accessories%') },
+  { id: 'kw:office',      name: 'Birou',             Icon: Monitor,  ...C.indigo,
+    photo: photo('1486406146926-c627a92ad1ab'),  // home office
+    order: 25, apply: (q) => q.or('category_en.ilike.%office%,category_en.ilike.%contract%') },
 ];
 
 export function bucketById(id: string): Bucket | null {
