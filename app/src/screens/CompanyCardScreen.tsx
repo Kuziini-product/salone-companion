@@ -2,7 +2,7 @@
 // quick-actions panel (add photo / quick comment), photos grid, notes with
 // voice mic, contact, and About at the very bottom.
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert, Image, ImageBackground, Linking, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
@@ -21,7 +21,8 @@ import { VoiceMic } from '../components/VoiceMic';
 import { CompanyChatModal } from '../components/CompanyChatModal';
 import { supabase, functionUrl } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { countryFlagEmoji, brandLogoUrl, faviconUrl, landingScreenshotUrl } from '../lib/brandHelpers';
+import { countryFlagEmoji, brandLogoUrl, faviconUrl } from '../lib/brandHelpers';
+import { fetchHeroImage } from '../lib/heroImage';
 import { pickImageWeb } from '../lib/pickImage';
 
 type Params = { CompanyCard: { companyId: string } };
@@ -83,6 +84,8 @@ export function CompanyCardScreen() {
   const [busyImg, setBusyImg] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [heroBg, setHeroBg] = useState<string | null>(null);
+  const [logoBroken, setLogoBroken] = useState(false);
 
   const load = useCallback(async () => {
     const [{ data: c }, { data: v }] = await Promise.all([
@@ -114,6 +117,16 @@ export function CompanyCardScreen() {
   }, [companyId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Resolve hero background — prefer og:image, fall back to mShots screenshot.
+  useEffect(() => {
+    let cancelled = false;
+    if (!company?.website) return;
+    fetchHeroImage(companyId, company.website).then((url) => {
+      if (!cancelled) setHeroBg(url);
+    });
+    return () => { cancelled = true; };
+  }, [companyId, company?.website]);
 
   // Ensure a visit row exists, returning its id.
   async function ensureVisit(): Promise<string> {
@@ -266,58 +279,64 @@ export function CompanyCardScreen() {
   const fullAddress = [company.address, company.postal_code, company.city, company.province]
     .filter(Boolean).join(', ');
 
-  // Logo URL priority: Clearbit → favicon → letter fallback.
-  const heroLogo = brandLogoUrl(company.website, 512) ?? faviconUrl(company.website, 256);
-  const screenshot = landingScreenshotUrl(company.website, 1200, 800);
+  // Logo URL priority: Clearbit → favicon → letter fallback (handled by onError).
+  const logoCandidate =
+    !logoBroken
+      ? (brandLogoUrl(company.website, 256) ?? faviconUrl(company.website, 128))
+      : null;
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* HERO: landing-page screenshot as background, logo on a white tile on top */}
+        {/* HERO: og:image (or screenshot fallback) fills the box.
+            Logo floats top-left as a small badge, name+meta sit on a soft
+            gradient at the bottom. No white plate covering the photo. */}
         <ImageBackground
-          source={screenshot ? { uri: screenshot } : undefined}
-          style={[styles.hero, { backgroundColor: '#1F2937', borderColor: palette.border }]}
+          source={heroBg ? { uri: heroBg } : undefined}
+          style={[styles.hero, { backgroundColor: '#0F172A', borderColor: palette.border }]}
           imageStyle={{ borderRadius: radius.xl }}
         >
-          {/* Soft dark scrim so the logo always reads */}
-          <View style={[styles.heroScrim, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
+          {/* Bottom gradient for text contrast */}
+          <View style={styles.heroGradient} />
 
-          {/* White logo tile centered */}
-          <View style={styles.heroLogoTile}>
-            {heroLogo ? (
-              <Image source={{ uri: heroLogo }} style={styles.heroLogo} resizeMode="contain" />
+          {/* Logo badge top-left */}
+          <View style={styles.logoBadge}>
+            {logoCandidate ? (
+              <Image
+                source={{ uri: logoCandidate }}
+                style={styles.logoBadgeImg}
+                resizeMode="contain"
+                onError={() => setLogoBroken(true)}
+              />
             ) : (
-              <Text style={[styles.heroInitial, { color: accents.companies.deep }]}>
-                {company.name[0].toUpperCase()}
-              </Text>
+              <Text style={styles.logoBadgeInitial}>{company.name[0].toUpperCase()}</Text>
             )}
           </View>
 
-          {/* Favorite floating button */}
+          {/* Favorite top-right */}
           <Pressable
             onPress={toggleFavorite}
-            style={[styles.favBtn, { backgroundColor: isFav ? '#EF4444' : 'rgba(255,255,255,0.95)' }]}
+            style={[styles.favBtn, { backgroundColor: isFav ? '#EF4444' : 'rgba(255,255,255,0.92)' }]}
             accessibilityLabel={isFav ? 'Scoate din favorite' : 'Adaugă la favorite'}
           >
             {savingFav
               ? <ActivityIndicator color={isFav ? '#FFFFFF' : '#EF4444'} size="small" />
               : <Heart size={22} color={isFav ? '#FFFFFF' : '#EF4444'} fill={isFav ? '#FFFFFF' : 'transparent'} strokeWidth={2} />}
           </Pressable>
-        </ImageBackground>
 
-        {/* Name + flag */}
-        <View style={styles.nameBlock}>
-          <Text style={[styles.name, { color: palette.text }]}>{company.name}</Text>
-          {flag ? <Text style={styles.flag}>{flag}</Text> : null}
-        </View>
-        {(company.hall || company.stand) ? (
-          <View style={styles.metaRow}>
-            <MapPin size={14} color={palette.textDim} strokeWidth={2} />
-            <Text style={[styles.meta, { color: palette.textDim }]}>
-              Hall {[company.hall, company.stand].filter(Boolean).join(' · ')}
-            </Text>
+          {/* Name + meta on the gradient */}
+          <View style={styles.heroFooter}>
+            <View style={styles.heroNameRow}>
+              <Text style={styles.heroName} numberOfLines={2}>{company.name}</Text>
+              {flag ? <Text style={styles.heroFlag}>{flag}</Text> : null}
+            </View>
+            {(company.hall || company.stand) ? (
+              <Text style={styles.heroMeta}>
+                Hall {[company.hall, company.stand].filter(Boolean).join(' · ')}
+              </Text>
+            ) : null}
           </View>
-        ) : null}
+        </ImageBackground>
 
         {/* Status + Quick Actions row */}
         <View style={styles.actionsRow}>
@@ -517,30 +536,54 @@ const styles = StyleSheet.create({
 
   scroll: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
 
-  // Hero — landing screenshot fills the box, logo sits on a white tile on top.
+  // Hero — full image background, logo as small badge top-left, name on
+  // a dark gradient at the bottom. No white plate covering the photo.
   hero: {
     width: '100%',
-    height: 240,
+    height: 260,
     borderRadius: radius.xl,
     borderWidth: 1,
-    alignItems: 'center', justifyContent: 'center',
     overflow: 'hidden',
+    justifyContent: 'space-between',
   },
-  heroScrim: { ...StyleSheet.absoluteFillObject, borderRadius: radius.xl },
-  heroLogoTile: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
-    borderRadius: radius.xl,
-    minWidth: 200,
-    minHeight: 120,
-    maxWidth: '70%',
+  heroGradient: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    height: '55%',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderBottomLeftRadius: radius.xl,
+    borderBottomRightRadius: radius.xl,
+  },
+  logoBadge: {
+    position: 'absolute', top: spacing.md, left: spacing.md,
+    width: 64, height: 64, borderRadius: radius.lg,
+    backgroundColor: 'rgba(255,255,255,0.95)',
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 16, shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    padding: spacing.xs,
+    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  heroLogo:    { width: 200, height: 100 },
-  heroInitial: { fontSize: 80, fontWeight: '700' },
+  logoBadgeImg:     { width: '100%', height: '100%' },
+  logoBadgeInitial: { fontSize: 28, fontWeight: '700', color: '#0F172A' },
+  heroFooter: {
+    padding: spacing.lg,
+    paddingTop: spacing.xl,
+    gap: 4,
+  },
+  heroNameRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
+  heroName: {
+    color: '#FFFFFF',
+    fontSize: 28, fontWeight: '700',
+    flexShrink: 1,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowRadius: 8,
+  },
+  heroFlag: { fontSize: 28 },
+  heroMeta: {
+    color: 'rgba(255,255,255,0.85)',
+    ...typography.body,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowRadius: 6,
+  },
   favBtn: {
     position: 'absolute', top: spacing.md, right: spacing.md,
     width: 44, height: 44, borderRadius: 22,
