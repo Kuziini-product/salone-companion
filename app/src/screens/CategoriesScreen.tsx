@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, ImageBackground, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -104,26 +104,26 @@ export function CategoriesScreen() {
                 ]}
                 onPress={() => open(item)}
               >
-                {/* Top: real photo with subtle overlay */}
-                <ImageBackground
-                  source={item.photo}
-                  style={styles.photo}
-                  imageStyle={styles.photoImage}
-                >
-                  <View style={[styles.photoOverlay, { backgroundColor: 'rgba(0,0,0,0.15)' }]} />
-                  <View style={[styles.photoBadge, { backgroundColor: item.fg }]}>
-                    <Text style={styles.photoBadgeText}>{count}</Text>
-                  </View>
-                </ImageBackground>
+                {/* Left vertical accent bar */}
+                <View style={[styles.cardAccent, { backgroundColor: item.fg }]} />
 
-                {/* Bottom: title block */}
-                <View style={styles.cardBottom}>
-                  <Text style={[styles.cardName, { color: palette.text }]} numberOfLines={2}>
-                    {item.name}
-                  </Text>
-                  <Text style={[styles.cardSub, { color: palette.textDim }]}>
-                    {count === 1 ? 'expozant' : 'expozanți'}
-                  </Text>
+                <View style={styles.cardBody}>
+                  {/* Count chip top-right */}
+                  <View style={styles.cardTop}>
+                    <View style={[styles.countChip, { backgroundColor: item.bg }]}>
+                      <Text style={[styles.countChipText, { color: item.fg }]}>{count}</Text>
+                    </View>
+                  </View>
+
+                  {/* Title — large display, breathing room */}
+                  <View style={styles.cardTitleBlock}>
+                    <Text style={[styles.cardName, { color: palette.text }]} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                    <Text style={[styles.cardSub, { color: palette.textDim }]}>
+                      {count === 1 ? 'expozant' : 'expozanți'}
+                    </Text>
+                  </View>
                 </View>
               </Pressable>
             );
@@ -183,34 +183,27 @@ const styles = StyleSheet.create({
 
   card: {
     flex: 1,
-    minHeight: 200,
+    minHeight: 140,
     borderRadius: radius.xl,
     borderWidth: 1,
     overflow: 'hidden',
+    flexDirection: 'row',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.10,
-    shadowRadius: 14,
-    elevation: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  photo: {
-    height: 130,
-    justifyContent: 'flex-end',
-    alignItems: 'flex-end',
-  },
-  photoImage: { resizeMode: 'cover' },
-  photoOverlay: { ...StyleSheet.absoluteFillObject },
-  photoBadge: {
-    margin: spacing.sm,
-    paddingHorizontal: 10, paddingVertical: 4,
+  cardAccent: { width: 4, height: '100%' },
+  cardBody:   { flex: 1, padding: spacing.lg, justifyContent: 'space-between' },
+  cardTop:    { flexDirection: 'row', justifyContent: 'flex-end' },
+  countChip:  {
+    paddingHorizontal: 10, paddingVertical: 3,
     borderRadius: radius.pill,
-    minWidth: 32, alignItems: 'center',
+    minWidth: 28, alignItems: 'center',
   },
-  photoBadgeText: { color: '#FFFFFF', fontWeight: '700', fontSize: 12 },
-  cardBottom: {
-    padding: spacing.md,
-    gap: 2,
-  },
-  cardName: { ...typography.subheading, lineHeight: 20 },
+  countChipText: { fontWeight: '700', fontSize: 12 },
+  cardTitleBlock: { gap: 2 },
+  cardName: { ...typography.heading, letterSpacing: -0.3, lineHeight: 24 },
   cardSub:  { ...typography.caption },
 
   footer: {

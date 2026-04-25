@@ -30,6 +30,9 @@ interface ModelGuess {
   brand_text?: string;       // text the model read on the stand/logo
   brand_keywords?: string[]; // additional words/style cues
   guess_names?: string[];    // model's best guesses for the brand name
+  // Product fallback when no brand is visible:
+  product_kind?: string;     // e.g. "sofa", "pendant lamp", "kitchen island"
+  product_keywords?: string[]; // words to search in catalog products/categories
 }
 
 Deno.serve(async (req) => {
@@ -62,15 +65,21 @@ Deno.serve(async (req) => {
       apiKey,
       model: MODELS.vision,
       systemPrompt: [
-        'You are a brand-recognition assistant for the Salone del Mobile design fair in Milan.',
-        'You will be given a photo of an exhibitor stand or a logo.',
-        'Read any visible brand text and infer the most likely Italian/European furniture or lighting brand.',
+        'You are a recognition assistant for the Salone del Mobile design fair in Milan.',
+        'You will be given a photo of an exhibitor stand, a logo, or a product (chair, sofa, lamp, kitchen, etc.).',
+        'STEP 1: Look for any visible brand text or logo. If you find one, return it.',
+        'STEP 2: If there is no readable brand, identify the product type and key descriptive words.',
         'Return ONLY a JSON object with this shape:',
-        '{ "brand_text": string, "brand_keywords": string[], "guess_names": string[] }',
-        'guess_names should contain 1-3 plausible brand names ordered by confidence.',
-        'Do not invent details; if unreadable, return empty arrays.',
+        '{',
+        '  "brand_text": string,         // text you read on the stand / logo (or empty)',
+        '  "brand_keywords": string[],   // style cues that hint at a brand',
+        '  "guess_names": string[],      // 0-3 plausible brand names',
+        '  "product_kind": string,       // generic product type if no brand visible (e.g. "leather sofa", "pendant lamp")',
+        '  "product_keywords": string[]  // 2-6 single English words for the product (e.g. "sofa","leather","modular")',
+        '}',
+        'Do not invent brand names. If you are not sure, leave guess_names empty and fill product_kind / product_keywords.',
       ].join('\n'),
-      userPrompt: 'Identify the brand on this stand. Return JSON only.',
+      userPrompt: 'Identify the brand if visible, otherwise describe the product. Return JSON only.',
       imageUrl: visionUrl,
       maxTokens: 400,
     });
@@ -88,8 +97,48 @@ Deno.serve(async (req) => {
     guess.brand_text ?? '',
   ].map((s) => s.trim()).filter(Boolean);
 
+  // ---- Product fallback ---------------------------------------------------
+  // If no brand candidates, search the catalog by the product keywords.
   if (candidates.length === 0) {
-    return jsonResponse({ matches: [], guess });
+    const keywords = [
+      ...(guess.product_keywords ?? []),
+      guess.product_kind ?? '',
+    ].map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+    if (keywords.length === 0) return jsonResponse({ matches: [], guess });
+
+    // OR ilike across products_en + category_en for each keyword.
+    const orParts: string[] = [];
+    for (const kw of keywords) {
+      orParts.push(`products_en.ilike.%${kw}%`);
+      orParts.push(`category_en.ilike.%${kw}%`);
+    }
+    let pq = supabase
+      .from('companies')
+      .select('id, name, hall, stand, logo_url')
+      .or(orParts.join(','))
+      .limit(50);
+    if (body.hall) pq = pq.eq('hall', body.hall);
+    const { data, error } = await pq;
+    if (error || !data) return jsonResponse({ matches: [], guess });
+
+    // Score each company by how many keywords its products cover.
+    const scored = data.map((row) => {
+      const text = `${row.name} ${row.hall ?? ''} ${row.stand ?? ''}`.toLowerCase();
+      let score = 0;
+      for (const kw of keywords) if (text.includes(kw)) score += 0.05;
+      return {
+        company_id: row.id,
+        name:       row.name,
+        hall:       row.hall,
+        stand:      row.stand,
+        logo_url:   row.logo_url,
+        confidence: Math.min(0.6, 0.45 + score),  // products are softer match
+        reason:     `Vinde: ${guess.product_kind ?? keywords.join(', ')}`,
+      };
+    }).slice(0, topK);
+
+    return jsonResponse({ matches: scored, guess, kind: 'product' });
   }
 
   // For each candidate, get fuzzy hits via trigram similarity. We aggregate
