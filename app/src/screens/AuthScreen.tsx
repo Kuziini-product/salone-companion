@@ -1,8 +1,9 @@
 // AuthScreen — magic-link sign-in.
 // First screen any unauthenticated user sees. Friendly and bright.
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Image,
   KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TextInput, View,
@@ -11,16 +12,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { Button } from '../components/Button';
 import { useAuth } from '../lib/auth';
+import { supabase } from '../lib/supabase';
 
 const KUZIINI_LOGO = require('../../assets/kuziini-logo.png');
 
 export function AuthScreen() {
   const { palette } = useTheme();
   const { signInEmail } = useAuth();
-  const [email, setEmail]     = useState('');
-  const [sending, setSending] = useState(false);
-  const [sent, setSent]       = useState(false);
-  const [error, setError]     = useState<string | null>(null);
+  const [email, setEmail]       = useState('');
+  const [sending, setSending]   = useState(false);
+  const [sent, setSent]         = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const onSubmit = async () => {
     setError(null);
@@ -29,6 +32,33 @@ export function AuthScreen() {
     setSending(false);
     if (error) setError(error);
     else setSent(true);
+  };
+
+  // While we're on the "sent" screen, poll the session every 2s. The moment
+  // the user confirms in the other tab/device, supabase-js writes to
+  // localStorage and AuthProvider's onAuthStateChange takes over — but if
+  // the storage event doesn't fire (some webviews), this poll forces a
+  // refresh so the screen advances anyway.
+  useEffect(() => {
+    if (!sent) return;
+    const id = setInterval(async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) clearInterval(id);
+    }, 2000);
+    return () => clearInterval(id);
+  }, [sent]);
+
+  const onCheckNow = async () => {
+    setChecking(true);
+    const { data } = await supabase.auth.getSession();
+    setChecking(false);
+    if (!data.session) {
+      Alert.alert(
+        'Încă nu',
+        'Nu am găsit nicio sesiune. Asigură-te că ai apăsat link-ul din email și apoi încearcă din nou.',
+      );
+    }
+    // If session exists, AuthProvider will re-render automatically.
   };
 
   return (
@@ -109,14 +139,26 @@ export function AuthScreen() {
                 Verifică emailul
               </Text>
               <Text style={[styles.sentMessage, { color: accents.contacts.deep }]}>
-                Ți-am trimis un link pe {email}. Apasă pe el ca să intri în aplicație.
+                Ți-am trimis un link pe {email}. Apasă pe link, apoi revino aici —
+                pagina se va actualiza automat când confirmi.
               </Text>
+
+              <Button
+                label="Am confirmat, intră"
+                onPress={onCheckNow}
+                loading={checking}
+                accent="contacts"
+                size="lg"
+                fullWidth
+                style={{ marginTop: spacing.lg }}
+              />
+
               <Button
                 label="Trimite alt link"
                 onPress={() => { setSent(false); setEmail(''); }}
                 variant="ghost"
                 accent="contacts"
-                style={{ marginTop: spacing.md }}
+                style={{ marginTop: spacing.sm }}
               />
             </View>
           )}
