@@ -1,119 +1,124 @@
-// CategoriesScreen
-// New tab. Shows the furniture/lighting categories as big colored cards.
-// Tap → CompaniesByCategory screen with the filtered list.
-//
-// Categories come from the `tags` table. We also show a count of companies
-// in each category so the user gets a sense of what's behind the card.
+// CategoriesScreen — premium tile grid backed by event_code + keyword buckets.
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  FlatList, Pressable, StyleSheet, Text, View, ActivityIndicator,
+  ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
+import { Search } from 'lucide-react-native';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { supabase } from '../lib/supabase';
-
-interface Category {
-  id:    string;
-  name:  string;
-  color: string | null;
-  count: number;
-}
-
-// Visual flavor per known category. Falls back to neutral if unknown.
-// Each entry: { emoji, gradient bg, gradient fg }
-const flavor: Record<string, { emoji: string; bg: string; fg: string }> = {
-  Lighting: { emoji: '💡', bg: '#FEF3C7', fg: '#92400E' },
-  Sofas:    { emoji: '🛋️', bg: '#DBEAFE', fg: '#1D4ED8' },
-  Tables:   { emoji: '🪑', bg: '#FEE2E2', fg: '#991B1B' },
-  Premium:  { emoji: '✨', bg: '#EDE9FE', fg: '#5B21B6' },
-  Italian:  { emoji: '🇮🇹', bg: '#D1FAE5', fg: '#047857' },
-  Outdoor:  { emoji: '🌿', bg: '#DCFCE7', fg: '#166534' },
-};
-const fallback = { emoji: '🏛️', bg: accents.companies.soft, fg: accents.companies.deep };
+import { BUCKETS, countForBucket, type Bucket } from '../lib/categoryBuckets';
 
 export function CategoriesScreen() {
   const { palette } = useTheme();
   const nav = useNavigation<{ navigate: (s: string, p?: object) => void }>();
-  const [cats, setCats] = useState<Category[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
-  const load = useCallback(async () => {
-    // Pull tags + their company counts via a single query.
-    // We use a foreign-table count so RLS still applies (catalog is public-read).
-    const { data, error } = await supabase
-      .from('tags')
-      .select('id, name, color, company_tags(count)')
-      .order('name');
-
-    if (error) {
-      // eslint-disable-next-line no-console
-      console.error(error);
-      setCats([]);
-    } else {
-      const mapped: Category[] = (data ?? []).map((t) => ({
-        id:    t.id,
-        name:  t.name,
-        color: t.color,
-        count: (t.company_tags?.[0]?.count as number | undefined) ?? 0,
-      }));
-      setCats(mapped);
-    }
-    setLoading(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(BUCKETS.map((b) => countForBucket(supabase, b)));
+      if (cancelled) return;
+      const next: Record<string, number> = {};
+      BUCKETS.forEach((b, i) => { next[b.id] = results[i]; });
+      setCounts(next);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return BUCKETS
+      .filter((b) => (q ? b.name.toLowerCase().includes(q) : true))
+      .filter((b) => (counts[b.id] ?? 0) > 0)
+      .sort((a, b) => a.order - b.order);
+  }, [search, counts]);
 
-  const renderItem = ({ item }: { item: Category }) => {
-    const f = flavor[item.name] ?? fallback;
-    return (
-      <Pressable
-        onPress={() => nav.navigate('CompaniesByCategory', {
-          tagId:   item.id,
-          tagName: item.name,
-        })}
-        style={({ pressed }) => [
-          styles.card,
-          { backgroundColor: f.bg, borderColor: f.fg + '20' },
-          pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
-        ]}
-      >
-        <Text style={styles.cardEmoji}>{f.emoji}</Text>
-        <Text style={[styles.cardName, { color: f.fg }]} numberOfLines={1}>
-          {item.name}
-        </Text>
-        <Text style={[styles.cardCount, { color: f.fg, opacity: 0.75 }]}>
-          {item.count} {item.count === 1 ? 'expozant' : 'expozanți'}
-        </Text>
-      </Pressable>
-    );
-  };
+  function open(b: Bucket) {
+    nav.navigate('CompaniesByCategory', {
+      bucketId: b.id,
+      tagName:  b.name,
+    });
+  }
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['top']}>
+      {/* Hero header */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: palette.text }]}>Categorii</Text>
-        <Text style={[styles.subtitle, { color: palette.textDim }]}>
-          Filtrează expozanții după tipul de mobilier
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.kicker, { color: palette.textFaint }]}>EXPLOREAZĂ</Text>
+          <Text style={[styles.title, { color: palette.text }]}>Categorii</Text>
+        </View>
+        {!loading ? (
+          <View style={[styles.countBadge, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+            <Text style={[styles.countBadgeText, { color: accents.profile.base }]}>{filtered.length}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Search */}
+      <View style={[styles.searchWrap, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+        <Search size={18} color={palette.textFaint} strokeWidth={2} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Caută o categorie…"
+          placeholderTextColor={palette.textFaint}
+          style={[styles.searchInput, { color: palette.text }]}
+          returnKeyType="search"
+        />
       </View>
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={accents.companies.base} />
+          <ActivityIndicator color={accents.profile.base} />
         </View>
       ) : (
         <FlatList
-          data={cats}
-          keyExtractor={(c) => c.id}
-          renderItem={renderItem}
+          data={filtered}
+          keyExtractor={(b) => b.id}
           numColumns={2}
-          columnWrapperStyle={styles.columnWrap}
+          columnWrapperStyle={{ gap: spacing.md }}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
-            <Text style={[styles.empty, { color: palette.textDim }]}>
-              Nicio categorie încă. Aplică seed.sql sau adaugă tag-uri în Supabase.
+          ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+          renderItem={({ item }) => {
+            const Icon = item.Icon;
+            const count = counts[item.id] ?? 0;
+            return (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.card,
+                  {
+                    backgroundColor: palette.mode === 'dark' ? palette.bgElevated : '#FFFFFF',
+                    borderColor: palette.border,
+                    shadowColor: palette.shadow,
+                  },
+                  pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
+                ]}
+                onPress={() => open(item)}
+              >
+                <View style={[styles.iconBubble, { backgroundColor: item.bg }]}>
+                  <Icon size={28} color={item.fg} strokeWidth={1.75} />
+                </View>
+                <View style={{ marginTop: spacing.md }}>
+                  <Text style={[styles.cardName, { color: palette.text }]} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  <View style={[styles.cardCountPill, { backgroundColor: item.bg }]}>
+                    <Text style={[styles.cardCount, { color: item.fg }]}>{count}</Text>
+                  </View>
+                </View>
+              </Pressable>
+            );
+          }}
+          ListFooterComponent={
+            <Text style={[styles.footer, { color: palette.textFaint }]}>
+              Un expozant poate apărea în mai multe categorii.
             </Text>
           }
         />
@@ -127,28 +132,69 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
-    gap: 4,
+    paddingBottom: spacing.sm,
+    gap: spacing.md,
   },
-  title:    { ...typography.title },
-  subtitle: { ...typography.body },
+  kicker: { ...typography.micro, marginBottom: 4 },
+  title:  { ...typography.display, letterSpacing: -0.5 },
+  countBadge: {
+    minWidth: 44, height: 44, paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  countBadgeText: { ...typography.bodyBold },
 
-  listContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
-  columnWrap:  { gap: spacing.md },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    height: 48,
+    gap: spacing.sm,
+  },
+  searchInput: { flex: 1, ...typography.body, height: '100%' },
+
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl,
+    paddingTop: spacing.xs,
+    gap: spacing.md,
+  },
 
   card: {
     flex: 1,
-    aspectRatio: 1,
+    minHeight: 168,
     borderRadius: radius.xl,
-    borderWidth: 1,
     padding: spacing.lg,
-    justifyContent: 'space-between',
+    borderWidth: 1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 3,
   },
-  cardEmoji: { fontSize: 40 },
-  cardName:  { ...typography.heading, marginTop: spacing.sm },
-  cardCount: { ...typography.caption, marginTop: 2 },
+  iconBubble: {
+    width: 56, height: 56, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  cardName: { ...typography.subheading, marginBottom: 6 },
+  cardCountPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10, paddingVertical: 3,
+    borderRadius: radius.pill,
+  },
+  cardCount: { ...typography.caption, fontWeight: '700' },
 
-  empty: { ...typography.body, textAlign: 'center', padding: spacing.xl },
+  footer: {
+    textAlign: 'center',
+    paddingTop: spacing.xl,
+    ...typography.caption,
+  },
 });

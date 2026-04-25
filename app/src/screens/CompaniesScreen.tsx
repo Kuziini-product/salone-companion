@@ -1,10 +1,11 @@
-// CompaniesScreen — full-catalog browser.
-// Server-side search (debounced) so we don't load all 1300+ rows up-front.
+// CompaniesScreen — full-catalog browser with extended search.
+// Search hits name + category + products (server-side ilike OR).
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { Search, Camera, Image as ImageIcon } from 'lucide-react-native';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { EmptyState } from '../components/EmptyState';
 import { BrandLogo } from '../components/BrandLogo';
@@ -35,7 +36,8 @@ export function CompaniesScreen() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // Build a query factory so load + loadMore stay consistent.
+  // Build a query factory so load + loadMore stay consistent. Search hits
+  // name + category_en + products_en (Supabase OR with ilike).
   const buildQuery = useCallback((from: number, to: number) => {
     let q = supabase
       .from('companies')
@@ -43,8 +45,13 @@ export function CompaniesScreen() {
       .order('name')
       .range(from, to);
     if (query) {
-      // ilike on the unaccent-normalised name for diacritic-insensitive search.
-      q = q.ilike('name_normalized', `%${query.toLowerCase()}%`);
+      const escaped = query.toLowerCase().replace(/,/g, ' ');
+      q = q.or([
+        `name_normalized.ilike.%${escaped}%`,
+        `category_en.ilike.%${escaped}%`,
+        `products_en.ilike.%${escaped}%`,
+        `city.ilike.%${escaped}%`,
+      ].join(','));
     }
     return q;
   }, [query]);
@@ -75,24 +82,65 @@ export function CompaniesScreen() {
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['top']}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: palette.text }]}>Expozanți</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.kicker, { color: palette.textFaint }]}>SALONE 2026</Text>
+          <Text style={[styles.title, { color: palette.text }]}>Expozanți</Text>
+        </View>
         {total !== null ? (
-          <Text style={[styles.count, { color: accents.companies.base }]}>{total}</Text>
+          <View style={[styles.countBadge, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+            <Text style={[styles.countBadgeText, { color: accents.companies.base }]}>{total}</Text>
+          </View>
         ) : null}
       </View>
 
       {/* Search */}
-      <View style={[styles.searchWrap, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
-        <Text style={styles.searchEmoji}>🔍</Text>
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Caută după nume…"
-          placeholderTextColor={palette.textFaint}
-          autoCapitalize="none"
-          style={[styles.searchInput, { color: palette.text }]}
-          returnKeyType="search"
-        />
+      <View style={styles.searchRow}>
+        <View style={[styles.searchWrap, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+          <Search size={18} color={palette.textFaint} strokeWidth={2} />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Caută nume, produs, categorie…"
+            placeholderTextColor={palette.textFaint}
+            autoCapitalize="none"
+            style={[styles.searchInput, { color: palette.text }]}
+            returnKeyType="search"
+          />
+        </View>
+        <Pressable
+          style={({ pressed }) => [
+            styles.iconBtn,
+            { backgroundColor: palette.bgElevated, borderColor: palette.border },
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={() =>
+            Alert.alert(
+              'Caută cu o poză',
+              'Funcția de căutare prin imagine necesită o cheie API Anthropic. ' +
+              'Configurează cheia în Profil → Setări AI și revino.',
+            )
+          }
+          accessibilityLabel="Caută din galerie"
+        >
+          <ImageIcon size={20} color={accents.companies.base} strokeWidth={2} />
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.iconBtn,
+            { backgroundColor: palette.bgElevated, borderColor: palette.border },
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={() =>
+            Alert.alert(
+              'Fotografiază pentru a căuta',
+              'Funcția de căutare prin poza directă necesită o cheie API Anthropic. ' +
+              'Configurează cheia în Profil → Setări AI și revino.',
+            )
+          }
+          accessibilityLabel="Fotografiază"
+        >
+          <Camera size={20} color={accents.capture.base} strokeWidth={2} />
+        </Pressable>
       </View>
 
       {loading ? (
@@ -165,16 +213,23 @@ const styles = StyleSheet.create({
   flex:   { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
-    flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm,
+    flexDirection: 'row', alignItems: 'flex-end',
+    paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.md,
+    gap: spacing.md,
   },
-  title: { ...typography.title },
-  count: { ...typography.heading },
+  kicker:    { ...typography.micro, marginBottom: 4 },
+  title:     { ...typography.display, letterSpacing: -0.5 },
+  countBadge: {
+    minWidth: 48, height: 48, paddingHorizontal: spacing.md,
+    borderRadius: radius.pill, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  countBadgeText: { ...typography.bodyBold },
   listContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
   row: {
     flexDirection: 'row', alignItems: 'center',
     borderRadius: radius.lg, borderWidth: 1,
-    padding: spacing.sm, gap: spacing.md,
+    padding: spacing.md, gap: spacing.md,
   },
   bullet: {
     width: 44, height: 44, borderRadius: radius.md,
@@ -184,18 +239,28 @@ const styles = StyleSheet.create({
   name: { ...typography.bodyBold },
   meta: { ...typography.caption },
 
-  searchWrap: {
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: spacing.lg,
+    paddingHorizontal: spacing.lg,
     marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  searchWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: radius.lg,
     borderWidth: 1,
     paddingHorizontal: spacing.md,
-    height: 44,
+    height: 48,
     gap: spacing.sm,
   },
-  searchEmoji: { fontSize: 16 },
   searchInput: { flex: 1, ...typography.body, height: '100%' },
+  iconBtn: {
+    width: 48, height: 48,
+    borderRadius: radius.lg, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
   footer: { textAlign: 'center', paddingVertical: spacing.lg, ...typography.caption },
 });
