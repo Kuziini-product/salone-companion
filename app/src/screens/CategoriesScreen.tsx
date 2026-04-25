@@ -9,11 +9,14 @@ import { useNavigation } from '@react-navigation/native';
 import { Search } from 'lucide-react-native';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth';
 import { BUCKETS, countForBucket, type Bucket } from '../lib/categoryBuckets';
 
 export function CategoriesScreen() {
   const { palette } = useTheme();
   const nav = useNavigation<{ navigate: (s: string, p?: object) => void }>();
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -21,7 +24,7 @@ export function CategoriesScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const results = await Promise.all(BUCKETS.map((b) => countForBucket(supabase, b)));
+      const results = await Promise.all(BUCKETS.map((b) => countForBucket(supabase, b, userId)));
       if (cancelled) return;
       const next: Record<string, number> = {};
       BUCKETS.forEach((b, i) => { next[b.id] = results[i]; });
@@ -29,7 +32,7 @@ export function CategoriesScreen() {
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [userId]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

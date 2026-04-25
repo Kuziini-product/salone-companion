@@ -14,6 +14,7 @@ import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { EmptyState } from '../components/EmptyState';
 import { BrandLogo } from '../components/BrandLogo';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth';
 import { countryFlagEmoji } from '../lib/brandHelpers';
 import { bucketById } from '../lib/categoryBuckets';
 
@@ -30,6 +31,8 @@ export function CompaniesByCategoryScreen() {
   const { palette } = useTheme();
   const nav = useNavigation<{ navigate: (s: string, p?: object) => void }>();
   const route = useRoute<RouteProp<Params, 'CompaniesByCategory'>>();
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
   const { bucketId, tagName } = route.params;
   const bucket = bucketById(bucketId);
 
@@ -46,24 +49,23 @@ export function CompaniesByCategoryScreen() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const buildQuery = useCallback((from: number, to: number) => {
+  const buildQuery = useCallback(async (from: number, to: number) => {
     if (!bucket) return null;
     let q = supabase
       .from('companies')
       .select('id, name, hall, stand, city, country, website', { count: 'exact' })
       .order('name')
       .range(from, to);
-    q = bucket.apply(q);
+    q = await bucket.apply(q, { userId, client: supabase });
     if (query) {
       q = q.ilike('name_normalized', `%${query.toLowerCase()}%`);
     }
     return q;
-  }, [bucket, query]);
+  }, [bucket, query, userId]);
 
   const load = useCallback(async () => {
-    if (!buildQuery) return;
     setLoading(true);
-    const q = buildQuery(0, PAGE_SIZE - 1);
+    const q = await buildQuery(0, PAGE_SIZE - 1);
     if (!q) return;
     const { data, count } = await q;
     setRows(data ?? []);
@@ -78,7 +80,7 @@ export function CompaniesByCategoryScreen() {
     if (more || !hasMore) return;
     setMore(true);
     const from = rows.length;
-    const q = buildQuery(from, from + PAGE_SIZE - 1);
+    const q = await buildQuery(from, from + PAGE_SIZE - 1);
     if (q) {
       const { data } = await q;
       setRows((prev) => [...prev, ...(data ?? [])]);

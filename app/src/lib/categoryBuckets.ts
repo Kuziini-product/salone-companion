@@ -6,6 +6,7 @@ import type { LucideIcon } from 'lucide-react-native';
 import {
   Sofa, ChefHat, Wrench, ShowerHead, Lightbulb, Briefcase, Crown, Sparkles,
   Bed, Armchair, Trees, Shirt, Monitor,
+  Heart, Check, Camera, MessageSquare,
 } from 'lucide-react-native';
 
 export interface Bucket {
@@ -15,8 +16,22 @@ export interface Bucket {
   bg:    string;          // soft tint background (fallback if photo fails)
   fg:    string;          // primary accent
   photo: string;          // hero photo URL (Unsplash CDN)
-  apply: (q: any) => any;
+  /**
+   * Apply the bucket's filter onto a SELECT companies query. May be
+   * synchronous OR async (the personal buckets — Favorite, Visited, etc. —
+   * need to first fetch the user's visits and then build an `in` filter).
+   */
+  apply: (q: any, ctx: BucketContext) => any | Promise<any>;
+  /** True for buckets that depend on the current user's visits/images/notes. */
+  personal?: boolean;
   order: number;
+}
+
+export interface BucketContext {
+  /** Authenticated user id, or null if not signed in. */
+  userId: string | null;
+  /** A reference to the supabase client for sub-queries. */
+  client: SupabaseClient;
 }
 
 // Pre-curated Unsplash photo IDs. The format is the direct CDN URL with
@@ -37,7 +52,50 @@ const C = {
   rose:   { bg: '#FFE4E6', fg: '#9F1239' },
 };
 
+// Helper for personal buckets: pre-fetch the user's matching company_ids,
+// then narrow the main query to those.
+async function applyVisitFilter(
+  q: any,
+  ctx: BucketContext,
+  filter: (vq: any) => any,
+): Promise<any> {
+  if (!ctx.userId) return q.eq('id', '00000000-0000-0000-0000-000000000000'); // empty
+  let vq = ctx.client.from('visits').select('company_id').eq('user_id', ctx.userId);
+  vq = filter(vq);
+  const { data } = await vq;
+  const ids = (data ?? []).map((r: any) => r.company_id).filter(Boolean);
+  if (ids.length === 0) return q.eq('id', '00000000-0000-0000-0000-000000000000');
+  return q.in('id', ids);
+}
+
+async function applyImageFilter(q: any, ctx: BucketContext): Promise<any> {
+  if (!ctx.userId) return q.eq('id', '00000000-0000-0000-0000-000000000000');
+  // Companies that have at least one image via a visit owned by this user.
+  const { data: visits } = await ctx.client.from('visits').select('id, company_id').eq('user_id', ctx.userId);
+  const visitMap = new Map((visits ?? []).map((v: any) => [v.id, v.company_id]));
+  const visitIds = [...visitMap.keys()];
+  if (visitIds.length === 0) return q.eq('id', '00000000-0000-0000-0000-000000000000');
+  const { data: imgs } = await ctx.client.from('images').select('visit_id').in('visit_id', visitIds);
+  const ids = [...new Set((imgs ?? []).map((i: any) => visitMap.get(i.visit_id)).filter(Boolean))];
+  if (ids.length === 0) return q.eq('id', '00000000-0000-0000-0000-000000000000');
+  return q.in('id', ids);
+}
+
 export const BUCKETS: Bucket[] = [
+  // ---- Personal: depend on the user's visits ------------------------------
+  { id: 'me:fav', name: 'Favorite', Icon: Heart, ...C.rose, personal: true,
+    photo: photo('1493663284031-b7e3aefcae8e'),  // hearts / pink composition
+    order: -10, apply: (q, ctx) => applyVisitFilter(q, ctx, (vq) => vq.eq('is_favorite', true)) },
+  { id: 'me:visited', name: 'Vizitate', Icon: Check, ...C.green, personal: true,
+    photo: photo('1559311648-d46f5d8593a3'),     // visited / checked
+    order: -9, apply: (q, ctx) => applyVisitFilter(q, ctx, (vq) => vq.in('status', ['visited', 'follow_up'])) },
+  { id: 'me:photos', name: 'Cu poze', Icon: Camera, ...C.indigo, personal: true,
+    photo: photo('1502920917128-1aa500764cbd'),  // camera lens
+    order: -8, apply: (q, ctx) => applyImageFilter(q, ctx) },
+  { id: 'me:notes', name: 'Cu note', Icon: MessageSquare, ...C.amber, personal: true,
+    photo: photo('1455390582262-044cdead277a'),  // notebook
+    order: -7, apply: (q, ctx) => applyVisitFilter(q, ctx, (vq) => vq.not('notes', 'is', null).neq('notes', '')) },
+
   // ---- Top-level (1:1 with event_code) ------------------------------------
   { id: 'event:SMI', name: 'Mobilier general',     Icon: Sofa,       ...C.blue,
     photo: photo('1567538096630-e0c55bd6374c'),  // modern living room
@@ -89,9 +147,13 @@ export function bucketById(id: string): Bucket | null {
   return BUCKETS.find((b) => b.id === id) ?? null;
 }
 
-export async function countForBucket(supabase: SupabaseClient, bucket: Bucket): Promise<number> {
+export async function countForBucket(
+  supabase: SupabaseClient,
+  bucket: Bucket,
+  userId: string | null,
+): Promise<number> {
   let q = supabase.from('companies').select('id', { count: 'exact', head: true });
-  q = bucket.apply(q);
+  q = await bucket.apply(q, { userId, client: supabase });
   const { count } = await q;
   return count ?? 0;
 }

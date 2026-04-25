@@ -1,27 +1,27 @@
-// CompanyCardScreen
-// Rich detail view for a single exhibitor.
-//
-// Sections (top to bottom):
-//   Hero        — colored letter avatar + name + hall/stand
-//   Visit pill  — tap to cycle status (planned → visited → follow_up → skipped)
-//   Tags        — colored chips, tap to open the category list
-//   About       — description text
-//   Actions     — open website
-//   Contacts    — business cards already linked to this company
+// CompanyCardScreen — premium detail with big logo header, favorite toggle,
+// quick-actions panel (add photo / quick comment), photos grid, notes with
+// voice mic, contact, and About at the very bottom.
 
 import React, { useCallback, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Linking, Pressable, ScrollView,
-  StyleSheet, Text, View,
+  ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView,
+  StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import {
+  Heart, Phone, Mail, MapPin, Globe, Camera, MessageSquarePlus,
+  Sparkles, Save,
+} from 'lucide-react-native';
 import { useTheme, accents, statusColors, spacing, radius, typography } from '../theme';
 import { Button } from '../components/Button';
 import { BrandLogo } from '../components/BrandLogo';
-import { supabase } from '../lib/supabase';
-import { countryFlagEmoji } from '../lib/brandHelpers';
+import { VoiceMic } from '../components/VoiceMic';
+import { supabase, functionUrl } from '../lib/supabase';
+import { useAuth } from '../lib/auth';
+import { countryFlagEmoji, brandLogoUrl, faviconUrl } from '../lib/brandHelpers';
+import { pickImageWeb } from '../lib/pickImage';
 
 type Params = { CompanyCard: { companyId: string } };
 type VisitStatus = 'planned' | 'visited' | 'follow_up' | 'skipped';
@@ -46,343 +46,432 @@ interface Company {
   products_en: string | null;
 }
 
-interface Tag { id: string; name: string }
-interface ContactRow { id: string; full_name: string | null; role: string | null }
+interface Visit {
+  id:          string;
+  status:      VisitStatus;
+  notes:       string | null;
+  ai_summary:  string | null;
+  is_favorite: boolean;
+}
 
-const flavorByName: Record<string, { bg: string; fg: string }> = {
-  Lighting: { bg: '#FEF3C7', fg: '#92400E' },
-  Sofas:    { bg: '#DBEAFE', fg: '#1D4ED8' },
-  Tables:   { bg: '#FEE2E2', fg: '#991B1B' },
-  Premium:  { bg: '#EDE9FE', fg: '#5B21B6' },
-  Italian:  { bg: '#D1FAE5', fg: '#047857' },
-  Outdoor:  { bg: '#DCFCE7', fg: '#166534' },
-};
-const tagFallback = { bg: accents.companies.soft, fg: accents.companies.deep };
+interface ImageRow { id: string; storage_path: string; caption: string | null; created_at: string }
 
 const statusOrder: VisitStatus[] = ['planned', 'visited', 'follow_up', 'skipped'];
 const statusLabel: Record<VisitStatus, string> = {
-  planned:   'Planificat',
-  visited:   'Vizitat',
-  follow_up: 'Follow-up',
-  skipped:   'Sărit',
+  planned: 'Planificat', visited: 'Vizitat', follow_up: 'Follow-up', skipped: 'Sărit',
 };
 
 export function CompanyCardScreen() {
   const { palette } = useTheme();
   const nav = useNavigation<{ navigate: (s: string, p?: object) => void }>();
   const route = useRoute<RouteProp<Params, 'CompanyCard'>>();
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
   const { companyId } = route.params;
 
-  const [company, setCompany]   = useState<Company | null>(null);
-  const [tags, setTags]         = useState<Tag[]>([]);
-  const [contacts, setContacts] = useState<ContactRow[]>([]);
-  const [visitId, setVisitId]   = useState<string | null>(null);
-  const [status, setStatus]     = useState<VisitStatus>('planned');
-  const [loading, setLoading]   = useState(true);
-  const [savingStatus, setSaving] = useState(false);
+  const [company, setCompany] = useState<Company | null>(null);
+  const [visit, setVisit]     = useState<Visit | null>(null);
+  const [images, setImages]   = useState<ImageRow[]>([]);
+  const [thumbs, setThumbs]   = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
+  const [notes, setNotes]     = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [savingFav, setSavingFav] = useState(false);
+  const [busyImg, setBusyImg] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
 
   const load = useCallback(async () => {
-    const [{ data: c }, { data: t }, { data: ct }, { data: v }] = await Promise.all([
-      supabase
-        .from('companies')
-        .select(
-          'id, name, hall, stand, description, website, email, email_alt, phone, fax, address, postal_code, city, province, country, category_en, products_en',
-        )
-        .eq('id', companyId)
-        .maybeSingle(),
-      supabase
-        .from('company_tags')
-        .select('tags!inner(id, name)')
-        .eq('company_id', companyId),
-      supabase
-        .from('contacts')
-        .select('id, full_name, role')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('visits')
-        .select('id, status')
-        .eq('company_id', companyId)
-        .maybeSingle(),
+    const [{ data: c }, { data: v }] = await Promise.all([
+      supabase.from('companies').select(
+        'id, name, hall, stand, description, website, email, email_alt, phone, fax, address, postal_code, city, province, country, category_en, products_en'
+      ).eq('id', companyId).maybeSingle(),
+      supabase.from('visits').select('id, status, notes, ai_summary, is_favorite')
+        .eq('company_id', companyId).maybeSingle(),
     ]);
-
     setCompany(c ?? null);
-    setTags(((t ?? []).map((r) => r.tags as unknown as Tag).filter(Boolean)));
-    setContacts(ct ?? []);
+    setVisit(v as Visit | null);
+    setNotes((v as Visit | null)?.notes ?? '');
+
     if (v) {
-      setVisitId(v.id);
-      setStatus(v.status as VisitStatus);
+      const { data: imgs } = await supabase
+        .from('images').select('id, storage_path, caption, created_at')
+        .eq('visit_id', (v as Visit).id).order('created_at', { ascending: false });
+      setImages((imgs ?? []) as ImageRow[]);
+
+      const next: Record<string, string> = {};
+      for (const im of imgs ?? []) {
+        const { data: signed } = await supabase.storage.from('company-images')
+          .createSignedUrl(im.storage_path, 3600);
+        if (signed?.signedUrl) next[im.id] = signed.signedUrl;
+      }
+      setThumbs(next);
     }
     setLoading(false);
   }, [companyId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // Cycle through statuses on tap. First tap creates the visit row.
-  const cycleStatus = async () => {
+  // Ensure a visit row exists, returning its id.
+  async function ensureVisit(): Promise<string> {
+    if (visit) return visit.id;
+    if (!userId) throw new Error('Not authenticated');
+    const { data, error } = await supabase.from('visits').insert({
+      user_id: userId, company_id: companyId, status: 'planned',
+    }).select('id, status, notes, ai_summary, is_favorite').single();
+    if (error) throw new Error(error.message);
+    setVisit(data as Visit);
+    return (data as Visit).id;
+  }
+
+  async function cycleStatus() {
     if (savingStatus) return;
     Haptics.selectionAsync();
-    const previous = status;
-    const next = statusOrder[(statusOrder.indexOf(status) + 1) % statusOrder.length];
-    setStatus(next);
-    setSaving(true);
+    const cur = visit?.status ?? 'planned';
+    const next = statusOrder[(statusOrder.indexOf(cur) + 1) % statusOrder.length];
+    setSavingStatus(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Nu ești autentificat');
-      if (visitId) {
-        const { error } = await supabase
-          .from('visits')
-          .update({
-            status: next,
-            visited_at: next === 'visited' ? new Date().toISOString() : null,
-          })
-          .eq('id', visitId);
-        if (error) throw new Error(error.message);
-      } else {
-        const { data, error } = await supabase
-          .from('visits')
-          .insert({
-            user_id: user.id,
-            company_id: companyId,
-            status: next,
-            visited_at: next === 'visited' ? new Date().toISOString() : null,
-          })
-          .select('id')
-          .single();
-        if (error) throw new Error(error.message);
-        setVisitId(data.id);
-      }
-    } catch (e) {
-      Alert.alert('Eroare', (e as Error).message);
-      setStatus(previous);
-    } finally {
-      setSaving(false);
-    }
-  };
+      const id = await ensureVisit();
+      await supabase.from('visits').update({
+        status: next,
+        visited_at: next === 'visited' ? new Date().toISOString() : null,
+      }).eq('id', id);
+      setVisit((v) => v ? { ...v, status: next } : v);
+    } finally { setSavingStatus(false); }
+  }
 
-  const openWebsite = () => {
+  async function toggleFavorite() {
+    if (savingFav) return;
+    Haptics.selectionAsync();
+    setSavingFav(true);
+    try {
+      const id = await ensureVisit();
+      const next = !visit?.is_favorite;
+      await supabase.from('visits').update({ is_favorite: next }).eq('id', id);
+      setVisit((v) => v ? { ...v, is_favorite: next } : v);
+    } finally { setSavingFav(false); }
+  }
+
+  async function saveNotes() {
+    if (savingNotes) return;
+    setSavingNotes(true);
+    try {
+      const id = await ensureVisit();
+      await supabase.from('visits').update({ notes }).eq('id', id);
+      setVisit((v) => v ? { ...v, notes } : v);
+    } finally { setSavingNotes(false); }
+  }
+
+  async function uploadImage(source: 'camera' | 'gallery') {
+    if (busyImg) return;
+    const uri = await pickImageWeb(source);
+    if (!uri) return;
+    setBusyImg(true);
+    try {
+      if (!userId) throw new Error('Not authenticated');
+      const visitId = await ensureVisit();
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const random = Math.random().toString(36).slice(2, 8);
+      const path = `${userId}/visit-${visitId}/${stamp}-${random}.jpg`;
+      const r = await fetch(uri);
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      const { error: upErr } = await supabase.storage.from('company-images').upload(path, bytes, {
+        contentType: 'image/jpeg',
+      });
+      if (upErr) throw new Error(upErr.message);
+      const { data: img, error: insErr } = await supabase.from('images').insert({
+        user_id: userId, visit_id: visitId, storage_path: path,
+      }).select('id, storage_path, caption, created_at').single();
+      if (insErr) throw new Error(insErr.message);
+      const { data: signed } = await supabase.storage.from('company-images').createSignedUrl(path, 3600);
+      setImages((prev) => [img as ImageRow, ...prev]);
+      if (signed?.signedUrl) setThumbs((prev) => ({ ...prev, [(img as ImageRow).id]: signed.signedUrl }));
+    } catch (e) {
+      Alert.alert('Eroare la upload', (e as Error).message);
+    } finally {
+      setBusyImg(false);
+    }
+  }
+
+  function appendQuickComment() {
+    Alert.prompt
+      ? Alert.prompt('Notă rapidă', 'Adaugă o linie scurtă la note', async (text: string | undefined) => {
+          if (!text) return;
+          const newNotes = [notes, text].filter(Boolean).join('\n');
+          setNotes(newNotes);
+          const id = await ensureVisit();
+          await supabase.from('visits').update({ notes: newNotes }).eq('id', id);
+          setVisit((v) => v ? { ...v, notes: newNotes } : v);
+        })
+      // Fallback for web (Alert.prompt is iOS-only)
+      : (() => {
+          const text = typeof window !== 'undefined' ? window.prompt('Notă rapidă') : null;
+          if (!text) return;
+          const newNotes = [notes, text].filter(Boolean).join('\n');
+          setNotes(newNotes);
+          ensureVisit().then((id) => {
+            supabase.from('visits').update({ notes: newNotes }).eq('id', id);
+            setVisit((v) => v ? { ...v, notes: newNotes } : v);
+          });
+        })();
+  }
+
+  async function generateSummary() {
+    if (summarizing || !visit) return;
+    setSummarizing(true);
+    try {
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (!s) throw new Error('Sesiunea a expirat');
+      const res = await fetch(functionUrl('summarize-visit'), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${s.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visit_id: visit.id }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const { summary } = await res.json();
+      setVisit((v) => v ? { ...v, ai_summary: summary } : v);
+    } catch (e) {
+      Alert.alert('AI summary eșuat', (e as Error).message);
+    } finally { setSummarizing(false); }
+  }
+
+  function openWebsite() {
     if (!company?.website) return;
     const url = company.website.startsWith('http') ? company.website : `https://${company.website}`;
-    Linking.openURL(url).catch(() =>
-      Alert.alert('Eroare', `Nu pot deschide ${url}`)
-    );
-  };
+    Linking.openURL(url).catch(() => {});
+  }
 
   if (loading) {
     return (
       <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]}>
-        <View style={styles.center}>
-          <ActivityIndicator color={accents.companies.base} size="large" />
-        </View>
+        <View style={styles.center}><ActivityIndicator color={accents.companies.base} size="large" /></View>
       </SafeAreaView>
     );
   }
-
   if (!company) {
     return (
       <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]}>
-        <View style={styles.center}>
-          <Text style={{ color: palette.textDim }}>Expozant negăsit</Text>
-        </View>
+        <View style={styles.center}><Text style={{ color: palette.textDim }}>Expozant negăsit</Text></View>
       </SafeAreaView>
     );
   }
 
+  const status = visit?.status ?? 'planned';
   const sc = statusColors[status];
   const flag = countryFlagEmoji(company.country);
+  const isFav = !!visit?.is_favorite;
   const fullAddress = [company.address, company.postal_code, company.city, company.province]
-    .filter(Boolean)
-    .join(', ');
+    .filter(Boolean).join(', ');
 
-  function openMaps() {
-    if (!fullAddress) return;
-    const q = encodeURIComponent(fullAddress);
-    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${q}`).catch(() => {});
-  }
+  // Choose a logo URL with priority Clearbit → favicon. Cap fallback to letter.
+  const heroLogo = brandLogoUrl(company.website, 512) ?? faviconUrl(company.website, 256);
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Hero — brand logo on a soft background */}
-        <View style={[styles.hero, { backgroundColor: accents.companies.soft }]}>
-          <BrandLogo
-            website={company.website}
-            name={company.name}
-            size={96}
-            background={accents.companies.soft}
-            foreground={accents.companies.deep}
-            rounded={20}
-          />
+        {/* HUGE LOGO HEADER */}
+        <View style={[styles.hero, { backgroundColor: '#FFFFFF', borderColor: palette.border }]}>
+          {heroLogo ? (
+            <Image source={{ uri: heroLogo }} style={styles.heroLogo} resizeMode="contain" />
+          ) : (
+            <Text style={[styles.heroInitial, { color: accents.companies.deep }]}>
+              {company.name[0].toUpperCase()}
+            </Text>
+          )}
+          {/* Favorite floating button */}
+          <Pressable
+            onPress={toggleFavorite}
+            style={[styles.favBtn, { backgroundColor: isFav ? '#EF4444' : 'rgba(255,255,255,0.9)' }]}
+            accessibilityLabel={isFav ? 'Scoate din favorite' : 'Adaugă la favorite'}
+          >
+            {savingFav
+              ? <ActivityIndicator color={isFav ? '#FFFFFF' : '#EF4444'} size="small" />
+              : <Heart size={22} color={isFav ? '#FFFFFF' : '#EF4444'} fill={isFav ? '#FFFFFF' : 'transparent'} strokeWidth={2} />}
+          </Pressable>
         </View>
 
-        <View style={styles.nameRow}>
-          <Text style={[styles.name, { color: palette.text }]} numberOfLines={2}>
-            {company.name}
-          </Text>
+        {/* Name + flag */}
+        <View style={styles.nameBlock}>
+          <Text style={[styles.name, { color: palette.text }]}>{company.name}</Text>
           {flag ? <Text style={styles.flag}>{flag}</Text> : null}
         </View>
         {(company.hall || company.stand) ? (
-          <Text style={[styles.meta, { color: palette.textDim }]}>
-            📍 Hall {[company.hall, company.stand].filter(Boolean).join(' · ')}
-          </Text>
+          <View style={styles.metaRow}>
+            <MapPin size={14} color={palette.textDim} strokeWidth={2} />
+            <Text style={[styles.meta, { color: palette.textDim }]}>
+              Hall {[company.hall, company.stand].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
         ) : null}
 
-        {/* Visit status pill — tap to cycle */}
-        <Pressable
-          onPress={cycleStatus}
-          disabled={savingStatus}
-          style={({ pressed }) => [
-            styles.statusPill,
-            { backgroundColor: sc.bg },
-            pressed && { opacity: 0.7 },
-          ]}
-        >
-          <Text style={[styles.statusText, { color: sc.fg }]}>
-            {statusLabel[status]}
-          </Text>
-          <Text style={[styles.statusHint, { color: sc.fg, opacity: 0.6 }]}>
-            apasă pentru a schimba
-          </Text>
-        </Pressable>
+        {/* Status + Quick Actions row */}
+        <View style={styles.actionsRow}>
+          <Pressable
+            onPress={cycleStatus} disabled={savingStatus}
+            style={({ pressed }) => [styles.statusPill, { backgroundColor: sc.bg }, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={[styles.statusText, { color: sc.fg }]}>{statusLabel[status]}</Text>
+          </Pressable>
 
-        {/* Tags */}
-        {tags.length > 0 ? (
-          <View style={styles.tagsWrap}>
-            {tags.map((tag) => {
-              const f = flavorByName[tag.name] ?? tagFallback;
-              return (
+          <Pressable
+            onPress={() => uploadImage('camera')}
+            disabled={busyImg}
+            style={({ pressed }) => [styles.qaBtn, { backgroundColor: accents.capture.soft }, pressed && { opacity: 0.7 }]}
+            accessibilityLabel="Fă o poză"
+          >
+            {busyImg ? <ActivityIndicator size="small" color={accents.capture.deep} /> :
+              <Camera size={20} color={accents.capture.deep} strokeWidth={2} />}
+          </Pressable>
+
+          <Pressable
+            onPress={() => uploadImage('gallery')}
+            disabled={busyImg}
+            style={({ pressed }) => [styles.qaBtn, { backgroundColor: accents.companies.soft }, pressed && { opacity: 0.7 }]}
+            accessibilityLabel="Adaugă din galerie"
+          >
+            <Camera size={20} color={accents.companies.deep} strokeWidth={2} />
+          </Pressable>
+
+          <Pressable
+            onPress={appendQuickComment}
+            style={({ pressed }) => [styles.qaBtn, { backgroundColor: accents.profile.soft }, pressed && { opacity: 0.7 }]}
+            accessibilityLabel="Notă rapidă"
+          >
+            <MessageSquarePlus size={20} color={accents.profile.deep} strokeWidth={2} />
+          </Pressable>
+        </View>
+
+        {/* Photo gallery */}
+        {images.length > 0 ? (
+          <View style={[styles.section, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+            <Text style={[styles.sectionLabel, { color: palette.textDim }]}>POZE ({images.length})</Text>
+            <View style={styles.grid}>
+              {images.map((img) => (
+                <View key={img.id} style={styles.thumbWrap}>
+                  {thumbs[img.id]
+                    ? <Image source={{ uri: thumbs[img.id] }} style={styles.thumb} />
+                    : <View style={[styles.thumb, { backgroundColor: palette.bgSubtle }]} />}
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {/* Notes with mic */}
+        <View style={[styles.section, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionLabel, { color: palette.textDim }]}>NOTE</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+              <VoiceMic
+                onTranscript={(t) => setNotes((prev) => prev ? `${prev} ${t}`.trim() : t.trim())}
+                color={accents.profile.deep}
+                background={accents.profile.soft}
+                size={36}
+              />
+              {notes !== (visit?.notes ?? '') && (
                 <Pressable
-                  key={tag.id}
-                  onPress={() => nav.navigate('CompaniesByCategory', { tagId: tag.id, tagName: tag.name })}
+                  onPress={saveNotes}
+                  disabled={savingNotes}
                   style={({ pressed }) => [
-                    styles.tag,
-                    { backgroundColor: f.bg },
+                    styles.saveBtn,
+                    { backgroundColor: accents.contacts.base },
                     pressed && { opacity: 0.7 },
                   ]}
                 >
-                  <Text style={[styles.tagText, { color: f.fg }]}>{tag.name}</Text>
+                  {savingNotes
+                    ? <ActivityIndicator size="small" color="#FFFFFF" />
+                    : <Save size={16} color="#FFFFFF" strokeWidth={2} />}
                 </Pressable>
-              );
-            })}
+              )}
+            </View>
           </View>
-        ) : null}
-
-        {/* Description */}
-        {company.description ? (
-          <View style={[styles.section, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
-            <Text style={[styles.sectionLabel, { color: palette.textDim }]}>DESPRE</Text>
-            <Text style={[styles.sectionBody, { color: palette.text }]}>
-              {company.description}
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            multiline
+            placeholder="Scrie sau apasă pe microfon și vorbește…"
+            placeholderTextColor={palette.textFaint}
+            style={[styles.notesInput, { color: palette.text, borderColor: palette.border }]}
+          />
+          {visit?.ai_summary ? (
+            <View style={[styles.summaryBox, { borderColor: accents.profile.base }]}>
+              <Text style={[styles.summaryLabel, { color: accents.profile.deep }]}>REZUMAT AI</Text>
+              <Text style={[styles.summaryText, { color: palette.text }]}>{visit.ai_summary}</Text>
+            </View>
+          ) : null}
+          <Pressable
+            onPress={generateSummary}
+            disabled={summarizing || !visit}
+            style={({ pressed }) => [styles.aiBtn, pressed && { opacity: 0.7 }]}
+          >
+            {summarizing
+              ? <ActivityIndicator size="small" color={accents.profile.deep} />
+              : <Sparkles size={16} color={accents.profile.deep} strokeWidth={2} />}
+            <Text style={[styles.aiBtnText, { color: accents.profile.deep }]}>
+              {summarizing ? 'AI scrie rezumat…' : 'Generează rezumat AI'}
             </Text>
-          </View>
-        ) : null}
+          </Pressable>
+        </View>
 
-        {/* Contact info — phone, email, address (each tappable) */}
+        {/* Contact info */}
         {(company.phone || company.email || fullAddress) ? (
           <View style={[styles.section, { backgroundColor: palette.bgElevated, borderColor: palette.border, padding: 0 }]}>
-            <Text style={[styles.sectionLabel, { color: palette.textDim, padding: spacing.lg, paddingBottom: spacing.sm }]}>
-              CONTACT
-            </Text>
+            <Text style={[styles.sectionLabel, { color: palette.textDim, padding: spacing.lg, paddingBottom: spacing.sm }]}>CONTACT</Text>
             {company.phone ? (
-              <Pressable
-                onPress={() => Linking.openURL(`tel:${company.phone!.replace(/\s+/g, '')}`).catch(() => {})}
-                style={({ pressed }) => [styles.contactRow, pressed && { opacity: 0.6 }]}
-              >
-                <Text style={styles.contactEmoji}>📞</Text>
+              <Pressable onPress={() => Linking.openURL(`tel:${company.phone!.replace(/\s+/g, '')}`).catch(() => {})}
+                style={({ pressed }) => [styles.contactRow, pressed && { opacity: 0.6 }]}>
+                <Phone size={20} color={accents.contacts.base} strokeWidth={2} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.contactKind, { color: palette.textDim }]}>Telefon</Text>
                   <Text style={[styles.contactValue, { color: palette.text }]}>{company.phone}</Text>
                 </View>
-                <Text style={[styles.chev, { color: palette.textFaint }]}>›</Text>
               </Pressable>
             ) : null}
             {company.email ? (
-              <Pressable
-                onPress={() => Linking.openURL(`mailto:${company.email}`).catch(() => {})}
-                style={({ pressed }) => [
-                  styles.contactRow,
+              <Pressable onPress={() => Linking.openURL(`mailto:${company.email}`).catch(() => {})}
+                style={({ pressed }) => [styles.contactRow,
                   { borderTopColor: palette.divider, borderTopWidth: StyleSheet.hairlineWidth },
-                  pressed && { opacity: 0.6 },
-                ]}
-              >
-                <Text style={styles.contactEmoji}>✉️</Text>
+                  pressed && { opacity: 0.6 }]}>
+                <Mail size={20} color={accents.companies.base} strokeWidth={2} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.contactKind, { color: palette.textDim }]}>Email</Text>
                   <Text style={[styles.contactValue, { color: palette.text }]} numberOfLines={1}>{company.email}</Text>
                 </View>
-                <Text style={[styles.chev, { color: palette.textFaint }]}>›</Text>
               </Pressable>
             ) : null}
             {fullAddress ? (
-              <Pressable
-                onPress={openMaps}
-                style={({ pressed }) => [
-                  styles.contactRow,
+              <Pressable onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`).catch(() => {})}
+                style={({ pressed }) => [styles.contactRow,
                   { borderTopColor: palette.divider, borderTopWidth: StyleSheet.hairlineWidth },
-                  pressed && { opacity: 0.6 },
-                ]}
-              >
-                <Text style={styles.contactEmoji}>📍</Text>
+                  pressed && { opacity: 0.6 }]}>
+                <MapPin size={20} color={accents.profile.base} strokeWidth={2} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.contactKind, { color: palette.textDim }]}>
-                    Adresă {flag ? ` ${flag}` : ''}
-                  </Text>
+                  <Text style={[styles.contactKind, { color: palette.textDim }]}>Adresă {flag}</Text>
                   <Text style={[styles.contactValue, { color: palette.text }]} numberOfLines={3}>{fullAddress}</Text>
                 </View>
-                <Text style={[styles.chev, { color: palette.textFaint }]}>›</Text>
               </Pressable>
             ) : null}
           </View>
         ) : null}
 
-        {/* Actions */}
+        {/* Website */}
         {company.website ? (
-          <View style={styles.actions}>
-            <Button
-              label="Deschide website"
-              icon={<Text style={{ fontSize: 16 }}>🌐</Text>}
-              onPress={openWebsite}
-              accent="companies"
-              variant="secondary"
-              fullWidth
-            />
-          </View>
+          <Button
+            label="Deschide website"
+            icon={<Globe size={16} color="#FFFFFF" strokeWidth={2} />}
+            onPress={openWebsite}
+            accent="companies"
+            variant="primary"
+            fullWidth
+          />
         ) : null}
 
-        {/* Contacts at this exhibitor */}
-        {contacts.length > 0 ? (
-          <View style={[styles.contactsCard, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
-            <Text style={[styles.sectionLabel, { color: palette.textDim, padding: spacing.lg, paddingBottom: spacing.sm }]}>
-              CĂRȚI DE VIZITĂ ({contacts.length})
-            </Text>
-            {contacts.map((c, i) => (
-              <Pressable
-                key={c.id}
-                onPress={() => nav.navigate('ContactDetail', { contactId: c.id })}
-                style={({ pressed }) => [
-                  styles.contactRow,
-                  i > 0 && { borderTopColor: palette.divider, borderTopWidth: StyleSheet.hairlineWidth },
-                  pressed && { opacity: 0.7 },
-                ]}
-              >
-                <View style={[styles.contactAvatar, { backgroundColor: accents.contacts.soft }]}>
-                  <Text style={[styles.contactInitial, { color: accents.contacts.deep }]}>
-                    {(c.full_name?.[0] ?? '?').toUpperCase()}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.contactName, { color: palette.text }]} numberOfLines={1}>
-                    {c.full_name || 'Contact fără nume'}
-                  </Text>
-                  {c.role ? (
-                    <Text style={[styles.contactRole, { color: palette.textDim }]} numberOfLines={1}>
-                      {c.role}
-                    </Text>
-                  ) : null}
-                </View>
-                <Text style={[styles.chev, { color: palette.textFaint }]}>›</Text>
-              </Pressable>
-            ))}
+        {/* About — moved to BOTTOM per user request */}
+        {company.description ? (
+          <View style={[styles.section, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
+            <Text style={[styles.sectionLabel, { color: palette.textDim }]}>DESPRE</Text>
+            <Text style={[styles.sectionBody, { color: palette.text }]}>{company.description}</Text>
           </View>
         ) : null}
       </ScrollView>
@@ -394,82 +483,78 @@ const styles = StyleSheet.create({
   flex:   { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  scroll: { padding: spacing.lg, gap: spacing.md, alignItems: 'center', paddingBottom: spacing.xxl },
+  scroll: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
 
+  // HUGE logo hero — full width, white background to give brand space.
   hero: {
-    width: 116, height: 116, borderRadius: radius.xl,
+    width: '100%',
+    height: 220,
+    borderRadius: radius.xl,
+    borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
-    marginTop: spacing.md, marginBottom: spacing.sm,
-    padding: spacing.sm,
+    overflow: 'hidden',
+    padding: spacing.xl,
   },
-  heroInitial: { fontSize: 44, fontWeight: '700' },
+  heroLogo:    { width: '100%', height: '100%' },
+  heroInitial: { fontSize: 96, fontWeight: '700' },
+  favBtn: {
+    position: 'absolute', top: spacing.md, right: spacing.md,
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
 
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg },
-  flag:    { fontSize: 28 },
-  name:    { ...typography.title, textAlign: 'center', flexShrink: 1 },
-  meta:    { ...typography.body },
+  nameBlock: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
+  flag:      { fontSize: 28 },
+  name:      { ...typography.title, flexShrink: 1 },
+  metaRow:   { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  meta:      { ...typography.body },
 
-  contactEmoji: { fontSize: 22 },
-  contactKind:  { ...typography.micro },
-  contactValue: { ...typography.body, marginTop: 2 },
-
+  actionsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
   statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.md, paddingVertical: 10,
     borderRadius: radius.pill,
-    gap: spacing.sm,
-    marginTop: spacing.sm,
+    flex: 1, alignItems: 'center',
   },
   statusText: { ...typography.bodyBold },
-  statusHint: { ...typography.caption },
-
-  tagsWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  tag: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-  },
-  tagText: { ...typography.caption, fontWeight: '600' },
-
-  section: {
-    alignSelf: 'stretch',
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.lg,
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  sectionLabel: { ...typography.micro },
-  sectionBody:  { ...typography.body, lineHeight: 22 },
-
-  actions: { alignSelf: 'stretch', marginTop: spacing.sm, gap: spacing.sm },
-
-  contactsCard: {
-    alignSelf: 'stretch',
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginTop: spacing.md,
-  },
-  contactRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  contactAvatar: {
-    width: 40, height: 40, borderRadius: radius.md,
+  qaBtn: {
+    width: 44, height: 44, borderRadius: radius.lg,
     alignItems: 'center', justifyContent: 'center',
   },
-  contactInitial: { ...typography.bodyBold },
-  contactName:    { ...typography.bodyBold },
-  contactRole:    { ...typography.caption, marginTop: 2 },
-  chev:           { fontSize: 24, marginLeft: spacing.sm },
+
+  section: {
+    borderRadius: radius.lg, borderWidth: 1,
+    padding: spacing.lg, gap: spacing.sm,
+  },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sectionLabel:  { ...typography.micro },
+  sectionBody:   { ...typography.body, lineHeight: 22 },
+
+  notesInput: {
+    minHeight: 100, padding: spacing.md, borderRadius: radius.md,
+    borderWidth: 1, ...typography.body, textAlignVertical: 'top',
+  },
+  saveBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+
+  summaryBox: {
+    borderLeftWidth: 3, paddingLeft: spacing.md, paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  summaryLabel: { ...typography.micro, marginBottom: 4 },
+  summaryText:  { ...typography.body, lineHeight: 22 },
+
+  aiBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    alignSelf: 'flex-start', marginTop: spacing.xs,
+  },
+  aiBtnText: { ...typography.caption, fontWeight: '600' },
+
+  grid:     { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+  thumbWrap:{ width: '31%' },
+  thumb:    { width: '100%', aspectRatio: 1, borderRadius: radius.md, backgroundColor: '#000' },
+
+  contactRow: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, gap: spacing.md },
+  contactKind:  { ...typography.micro },
+  contactValue: { ...typography.body, marginTop: 2 },
 });
