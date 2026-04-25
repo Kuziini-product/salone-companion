@@ -26,8 +26,17 @@ export interface LogoMatch {
 
 export interface MatchResult {
   matches:    LogoMatch[];
-  previewUri: string;          // local URI for in-app preview
-  storagePath:string;          // remote path inside company-images bucket
+  previewUri: string;
+  storagePath:string;
+  /** What kind of search the edge function ran ("brand" or "product"). */
+  kind?:      'brand' | 'product';
+  /** What the vision model identified — useful UX hint when matches are bad. */
+  guess?: {
+    brand_text?:       string;
+    guess_names?:      string[];
+    product_kind?:     string;
+    product_keywords?: string[];
+  };
 }
 
 export async function searchByImage(localUri: string): Promise<MatchResult> {
@@ -91,6 +100,8 @@ export async function searchByImage(localUri: string): Promise<MatchResult> {
     matches:     (json.matches ?? []) as LogoMatch[],
     previewUri,
     storagePath,
+    kind:        json.kind,
+    guess:       json.guess,
   };
 }
 

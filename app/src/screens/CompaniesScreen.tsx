@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabase';
 import { countryFlagEmoji } from '../lib/brandHelpers';
 import { pickImageWeb } from '../lib/pickImage';
 import { searchByImage } from '../lib/imageSearch';
+import { expandQuery } from '../lib/searchTranslate';
 
 interface Company {
   id: string; name: string; hall: string | null; stand: string | null;
@@ -40,7 +41,8 @@ export function CompaniesScreen() {
   }, [search]);
 
   // Build a query factory so load + loadMore stay consistent. Search hits
-  // name + category_en + products_en (Supabase OR with ilike).
+  // name + category_en/it + products_en/it + city (Supabase OR with ilike),
+  // expanding Romanian terms to their English/Italian equivalents.
   const buildQuery = useCallback((from: number, to: number) => {
     let q = supabase
       .from('companies')
@@ -48,13 +50,19 @@ export function CompaniesScreen() {
       .order('name')
       .range(from, to);
     if (query) {
-      const escaped = query.toLowerCase().replace(/,/g, ' ');
-      q = q.or([
-        `name_normalized.ilike.%${escaped}%`,
-        `category_en.ilike.%${escaped}%`,
-        `products_en.ilike.%${escaped}%`,
-        `city.ilike.%${escaped}%`,
-      ].join(','));
+      const terms = expandQuery(query);
+      const orParts: string[] = [];
+      for (const t of terms) {
+        const safe = t.replace(/[,()]/g, ' ').trim();
+        if (!safe) continue;
+        orParts.push(`name_normalized.ilike.%${safe}%`);
+        orParts.push(`category_en.ilike.%${safe}%`);
+        orParts.push(`category_it.ilike.%${safe}%`);
+        orParts.push(`products_en.ilike.%${safe}%`);
+        orParts.push(`products_it.ilike.%${safe}%`);
+        orParts.push(`city.ilike.%${safe}%`);
+      }
+      if (orParts.length > 0) q = q.or(orParts.join(','));
     }
     return q;
   }, [query]);
@@ -95,6 +103,8 @@ export function CompaniesScreen() {
         previewUri:  result.previewUri,
         storagePath: result.storagePath,
         matches:     result.matches,
+        kind:        result.kind,
+        guess:       result.guess,
       });
     } catch (e) {
       Alert.alert('Recunoaștere eșuată', (e as Error).message);

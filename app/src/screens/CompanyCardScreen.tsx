@@ -309,22 +309,6 @@ export function CompanyCardScreen() {
 
         </ImageBackground>
 
-        {/* Logo (centered, overlaps the bottom of the hero so it floats) */}
-        <View style={styles.logoUnderHeroWrap}>
-          <View style={styles.logoUnderHero}>
-            {logoCandidate ? (
-              <Image
-                source={{ uri: logoCandidate }}
-                style={styles.logoUnderHeroImg}
-                resizeMode="contain"
-                onError={() => setLogoBroken(true)}
-              />
-            ) : (
-              <Text style={styles.logoUnderHeroInitial}>{company.name[0].toUpperCase()}</Text>
-            )}
-          </View>
-        </View>
-
         {/* Name + flag centered under hero */}
         <View style={styles.nameUnderHero}>
           <Text style={[styles.nameLarge, { color: palette.text }]} numberOfLines={2}>

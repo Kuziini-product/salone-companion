@@ -100,43 +100,59 @@ Deno.serve(async (req) => {
   // ---- Product fallback ---------------------------------------------------
   // If no brand candidates, search the catalog by the product keywords.
   if (candidates.length === 0) {
-    const keywords = [
+    // Tokenize each entry — vision sometimes returns "leather, modular sofa"
+    // as one string. Split on punctuation, drop short noise.
+    const raw = [
       ...(guess.product_keywords ?? []),
       guess.product_kind ?? '',
-    ].map((s) => s.trim().toLowerCase()).filter(Boolean);
+    ];
+    const keywords = [...new Set(
+      raw.flatMap((s) => s.toLowerCase().split(/[,;|/]+/))
+        .map((s) => s.replace(/[^a-z0-9 ]/g, '').trim())
+        .filter((s) => s.length >= 3 && s.length <= 40)
+    )];
 
-    if (keywords.length === 0) return jsonResponse({ matches: [], guess });
+    if (keywords.length === 0) return jsonResponse({ matches: [], guess, kind: 'product' });
 
-    // OR ilike across products_en + category_en for each keyword.
+    // OR ilike across products_en/it + category_en/it for each keyword.
     const orParts: string[] = [];
     for (const kw of keywords) {
-      orParts.push(`products_en.ilike.%${kw}%`);
-      orParts.push(`category_en.ilike.%${kw}%`);
+      const safe = kw.replace(/[(),]/g, ' ').trim();
+      if (!safe) continue;
+      orParts.push(`products_en.ilike.%${safe}%`);
+      orParts.push(`products_it.ilike.%${safe}%`);
+      orParts.push(`category_en.ilike.%${safe}%`);
+      orParts.push(`category_it.ilike.%${safe}%`);
     }
     let pq = supabase
       .from('companies')
-      .select('id, name, hall, stand, logo_url')
+      .select('id, name, hall, stand, logo_url, products_en, category_en')
       .or(orParts.join(','))
-      .limit(50);
+      .limit(60);
     if (body.hall) pq = pq.eq('hall', body.hall);
     const { data, error } = await pq;
-    if (error || !data) return jsonResponse({ matches: [], guess });
+    if (error || !data) return jsonResponse({ matches: [], guess, kind: 'product' });
 
-    // Score each company by how many keywords its products cover.
-    const scored = data.map((row) => {
-      const text = `${row.name} ${row.hall ?? ''} ${row.stand ?? ''}`.toLowerCase();
-      let score = 0;
-      for (const kw of keywords) if (text.includes(kw)) score += 0.05;
-      return {
-        company_id: row.id,
-        name:       row.name,
-        hall:       row.hall,
-        stand:      row.stand,
-        logo_url:   row.logo_url,
-        confidence: Math.min(0.6, 0.45 + score),  // products are softer match
-        reason:     `Vinde: ${guess.product_kind ?? keywords.join(', ')}`,
-      };
-    }).slice(0, topK);
+    // Score by how many keywords each company's products+category contain.
+    const scored = data
+      .map((row) => {
+        const haystack = `${row.products_en ?? ''} ${row.category_en ?? ''}`.toLowerCase();
+        let hits = 0;
+        for (const kw of keywords) if (haystack.includes(kw)) hits++;
+        return {
+          company_id: row.id,
+          name:       row.name,
+          hall:       row.hall,
+          stand:      row.stand,
+          logo_url:   row.logo_url,
+          confidence: Math.min(0.85, 0.4 + hits * 0.1),
+          reason:     `Vinde: ${(guess.product_kind || keywords.slice(0, 3).join(', ')).trim()}`,
+          hits,
+        };
+      })
+      .sort((a, b) => b.hits - a.hits)
+      .slice(0, topK)
+      .map(({ hits, ...rest }) => rest);   // strip hits from response
 
     return jsonResponse({ matches: scored, guess, kind: 'product' });
   }

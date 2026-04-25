@@ -18,6 +18,13 @@ type Params = {
     previewUri:  string;
     storagePath: string;
     matches?:    LogoMatch[];
+    kind?:       'brand' | 'product';
+    guess?: {
+      brand_text?:       string;
+      guess_names?:      string[];
+      product_kind?:     string;
+      product_keywords?: string[];
+    };
   };
 };
 
@@ -25,12 +32,29 @@ export function MatchResultScreen() {
   const { palette } = useTheme();
   const nav = useNavigation<{ navigate: (s: string, p?: object) => void; goBack: () => void }>();
   const route = useRoute<RouteProp<Params, 'MatchResult'>>();
-  const { previewUri, matches = [] } = route.params;
+  const { previewUri, matches = [], kind, guess } = route.params;
+
+  // What did the AI think it saw?
+  const aiSawParts: string[] = [];
+  if (guess?.brand_text)     aiSawParts.push(`brand "${guess.brand_text}"`);
+  if (guess?.guess_names?.length) aiSawParts.push(`posibil ${guess.guess_names.slice(0, 2).join(' / ')}`);
+  if (guess?.product_kind)   aiSawParts.push(`produs: ${guess.product_kind}`);
+  else if (guess?.product_keywords?.length) aiSawParts.push(`produs: ${guess.product_keywords.slice(0, 4).join(', ')}`);
+  const aiSaw = aiSawParts.join(' · ');
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: palette.bg }]} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.content}>
         <Image source={{ uri: previewUri }} style={styles.preview} resizeMode="cover" />
+
+        {aiSaw ? (
+          <View style={[styles.aiSawBox, { backgroundColor: accents.profile.soft, borderColor: accents.profile.base }]}>
+            <Text style={[styles.aiSawKicker, { color: accents.profile.deep }]}>
+              {kind === 'product' ? 'AI a identificat un PRODUS' : 'AI A VĂZUT'}
+            </Text>
+            <Text style={[styles.aiSawText, { color: accents.profile.deep }]}>{aiSaw}</Text>
+          </View>
+        ) : null}
 
         {matches.length === 0 ? (
           <View style={[styles.empty, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
@@ -116,6 +140,13 @@ const styles = StyleSheet.create({
     width: '100%', aspectRatio: 1.4, borderRadius: radius.xl,
     backgroundColor: '#000',
   },
+
+  aiSawBox: {
+    borderRadius: radius.lg, borderWidth: 1.5,
+    padding: spacing.md, gap: 4,
+  },
+  aiSawKicker: { ...typography.micro },
+  aiSawText:   { ...typography.body, fontWeight: '600' },
 
   kicker: { ...typography.micro, marginTop: spacing.md },
   title:  { ...typography.title, marginBottom: spacing.sm },
