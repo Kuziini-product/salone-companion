@@ -33,8 +33,18 @@ export function CompanyPicker({ visible, onClose, onPick, initialQuery, selected
 
   useEffect(() => {
     if (!visible) return;
-    setSearch(initialQuery ?? '');
-    setQuery(initialQuery ?? '');
+    // Strip common company-name suffixes so the OCR'd "Cassina S.r.l." still
+    // matches "Cassina" in the catalog. Also keep only the first 2-3 words
+    // because the catalog stores the brand, not the legal entity.
+    const clean = (initialQuery ?? '')
+      .replace(/\b(s\.?r\.?l\.?|s\.?p\.?a\.?|gmbh|ltd\.?|inc\.?|llc|sas|bv|co\.?|s\.?a\.?)\b\.?/gi, '')
+      .replace(/[^A-Za-z0-9 &\-À-ſ]/g, ' ')   // drop punctuation, keep letters + diacritics
+      .trim()
+      .split(/\s+/)
+      .slice(0, 3)
+      .join(' ');
+    setSearch(clean);
+    setQuery(clean);
   }, [visible, initialQuery]);
 
   useEffect(() => {
@@ -140,9 +150,28 @@ export function CompanyPicker({ visible, onClose, onPick, initialQuery, selected
                 );
               }}
               ListEmptyComponent={
-                <Text style={{ textAlign: 'center', color: palette.textDim, padding: spacing.xl }}>
-                  Nimic nu se potrivește.
-                </Text>
+                <View style={{ alignItems: 'center', padding: spacing.xl, gap: spacing.md }}>
+                  <Text style={{ ...typography.body, color: palette.textDim, textAlign: 'center' }}>
+                    Niciun expozant nu se potrivește cu „{query}".
+                  </Text>
+                  {query ? (
+                    <Pressable
+                      onPress={() => { setSearch(''); setQuery(''); }}
+                      style={({ pressed }) => [
+                        {
+                          paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+                          borderRadius: radius.pill,
+                          backgroundColor: accents.companies.soft,
+                        },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={{ ...typography.bodyBold, color: accents.companies.deep }}>
+                        Șterge filtrul · arată-mi tot
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               }
             />
           )}

@@ -101,25 +101,36 @@ export async function scanCard(localUri: string): Promise<ScanCardResult> {
 /** Find a catalog company that matches the given name. Returns null if none. */
 export async function matchCompanyByName(name: string | null | undefined): Promise<string | null> {
   if (!name || name.trim().length < 2) return null;
-  // Strip common suffixes (S.r.l., S.p.A., GmbH, Ltd) to improve matching.
-  const cleaned = name.replace(/\b(s\.?r\.?l\.?|s\.?p\.?a\.?|gmbh|ltd|inc|llc|sas|bv|co\.?)\b\.?/gi, '').trim();
-  const candidate = cleaned || name;
+  // Strip common suffixes (S.r.l., S.p.A., GmbH, Ltd) and punctuation.
+  const cleaned = name
+    .replace(/\b(s\.?r\.?l\.?|s\.?p\.?a\.?|gmbh|ltd\.?|inc\.?|llc|sas|bv|co\.?|s\.?a\.?)\b\.?/gi, '')
+    .replace(/[^A-Za-z0-9 &\-À-ſ]/g, ' ')
+    .trim();
+  const candidate = cleaned || name.trim();
 
-  // Try exact-ish match first (fast).
+  // Try the cleaned full name first.
   const { data: exact } = await supabase
-    .from('companies')
-    .select('id')
-    .ilike('name', candidate)
-    .limit(1);
+    .from('companies').select('id').ilike('name', candidate).limit(1);
   if (exact?.[0]?.id) return exact[0].id;
 
-  // Fuzzy on the unaccented normalised column.
+  // Fuzzy on normalised column with full cleaned name.
   const { data: fuzzy } = await supabase
-    .from('companies')
-    .select('id')
-    .ilike('name_normalized', `%${candidate.toLowerCase()}%`)
-    .limit(1);
-  return fuzzy?.[0]?.id ?? null;
+    .from('companies').select('id')
+    .ilike('name_normalized', `%${candidate.toLowerCase()}%`).limit(1);
+  if (fuzzy?.[0]?.id) return fuzzy[0].id;
+
+  // Last resort: try just the first 1-2 words (often the brand part of a
+  // longer legal name). Skip very short tokens to avoid noise.
+  const tokens = candidate.split(/\s+/).filter((t) => t.length >= 3);
+  for (let n = Math.min(2, tokens.length); n >= 1; n--) {
+    const partial = tokens.slice(0, n).join(' ').toLowerCase();
+    if (partial.length < 3) continue;
+    const { data: tryp } = await supabase
+      .from('companies').select('id')
+      .ilike('name_normalized', `%${partial}%`).limit(1);
+    if (tryp?.[0]?.id) return tryp[0].id;
+  }
+  return null;
 }
 
 /** Persist the contact row using the user JWT (RLS enforces user_id). */
