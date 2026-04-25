@@ -8,6 +8,16 @@
 
 create extension if not exists "pgcrypto";
 create extension if not exists "unaccent";
+create extension if not exists "pg_trgm";
+
+-- IMMUTABLE wrapper around unaccent — required so we can use it in a
+-- generated column. The built-in unaccent() is only STABLE.
+create or replace function public.immutable_unaccent(text)
+  returns text
+  language sql
+  immutable
+  parallel safe
+  as $$ select public.unaccent('public.unaccent', $1) $$;
 
 -- ----------------------------------------------------------------------------
 -- 1. Catalog: companies
@@ -16,7 +26,7 @@ create table public.companies (
   id              uuid primary key default gen_random_uuid(),
   name            text not null,
   -- normalized name for fuzzy/diacritic-insensitive search
-  name_normalized text generated always as (lower(unaccent(name))) stored,
+  name_normalized text generated always as (lower(public.immutable_unaccent(name))) stored,
   hall            text,
   stand           text,
   website         text,
@@ -30,8 +40,6 @@ create table public.companies (
 
 create index companies_name_normalized_trgm on public.companies
   using gin (name_normalized gin_trgm_ops);
--- enable trigram for fuzzy matching
-create extension if not exists pg_trgm;
 
 create index companies_hall_idx on public.companies (hall);
 
