@@ -9,6 +9,7 @@
 
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { Platform } from 'react-native';
 import { supabase, functionUrl } from './supabase';
 
 export interface ParsedCard {
@@ -33,16 +34,7 @@ export interface ScanCardResult {
  * show a single error toast.
  */
 export async function scanCard(localUri: string): Promise<ScanCardResult> {
-  // ---- 1. Resize/compress -------------------------------------------------
-  // Cards are small. 1600px on the longest side is plenty for OCR and keeps
-  // the upload under a few hundred KB even on bad fairground Wi-Fi.
-  const compressed = await ImageManipulator.manipulateAsync(
-    localUri,
-    [{ resize: { width: 1600 } }],
-    { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
-  );
-
-  // ---- 2. Upload ----------------------------------------------------------
+  // ---- 1. Auth + path -----------------------------------------------------
   const { data: { user }, error: userErr } = await supabase.auth.getUser();
   if (userErr || !user) throw new Error('Nu ești autentificat');
 
@@ -50,12 +42,27 @@ export async function scanCard(localUri: string): Promise<ScanCardResult> {
   const random = Math.random().toString(36).slice(2, 8);
   const storagePath = `${user.id}/${stamp}-${random}.jpg`;
 
-  // RN can't upload from a `file://` URI directly with the JS client. Read
-  // as base64, decode, and upload as a binary blob.
-  const base64 = await FileSystem.readAsStringAsync(compressed.uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  const bytes = decodeBase64(base64);
+  // ---- 2. Get bytes (platform-specific) -----------------------------------
+  let bytes: Uint8Array;
+  let previewUri = localUri;
+
+  if (Platform.OS === 'web') {
+    // localUri is a blob: URL from <input type=file>. Fetch it directly.
+    const r = await fetch(localUri);
+    bytes = new Uint8Array(await r.arrayBuffer());
+  } else {
+    // Native: resize+compress then read as base64.
+    const compressed = await ImageManipulator.manipulateAsync(
+      localUri,
+      [{ resize: { width: 1600 } }],
+      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
+    );
+    previewUri = compressed.uri;
+    const base64 = await FileSystem.readAsStringAsync(compressed.uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    bytes = decodeBase64(base64);
+  }
 
   const { error: upErr } = await supabase.storage
     .from('business-cards')
@@ -87,8 +94,32 @@ export async function scanCard(localUri: string): Promise<ScanCardResult> {
   return {
     parsed,
     storagePath,
-    publicPreview: compressed.uri,
+    publicPreview: previewUri,
   };
+}
+
+/** Find a catalog company that matches the given name. Returns null if none. */
+export async function matchCompanyByName(name: string | null | undefined): Promise<string | null> {
+  if (!name || name.trim().length < 2) return null;
+  // Strip common suffixes (S.r.l., S.p.A., GmbH, Ltd) to improve matching.
+  const cleaned = name.replace(/\b(s\.?r\.?l\.?|s\.?p\.?a\.?|gmbh|ltd|inc|llc|sas|bv|co\.?)\b\.?/gi, '').trim();
+  const candidate = cleaned || name;
+
+  // Try exact-ish match first (fast).
+  const { data: exact } = await supabase
+    .from('companies')
+    .select('id')
+    .ilike('name', candidate)
+    .limit(1);
+  if (exact?.[0]?.id) return exact[0].id;
+
+  // Fuzzy on the unaccented normalised column.
+  const { data: fuzzy } = await supabase
+    .from('companies')
+    .select('id')
+    .ilike('name_normalized', `%${candidate.toLowerCase()}%`)
+    .limit(1);
+  return fuzzy?.[0]?.id ?? null;
 }
 
 /** Persist the contact row using the user JWT (RLS enforces user_id). */
@@ -97,11 +128,14 @@ export async function saveContact(args: {
   storagePath:   string;
   visitId?:      string;
   companyId?:    string;
-}): Promise<{ id: string }> {
-  const { parsed, storagePath, visitId, companyId } = args;
+}): Promise<{ id: string; company_id: string | null }> {
+  const { parsed, storagePath, visitId } = args;
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Nu ești autentificat');
+
+  // Auto-match against catalog if caller didn't provide one.
+  const companyId = args.companyId ?? (await matchCompanyByName(parsed.company_name));
 
   const { data, error } = await supabase
     .from('contacts')
@@ -124,7 +158,7 @@ export async function saveContact(args: {
     .single();
 
   if (error) throw new Error(`Salvare eșuată: ${error.message}`);
-  return { id: data.id };
+  return { id: data.id, company_id: companyId };
 }
 
 /** Get a 60s signed URL for a card image (used by ContactsScreen list/detail). */

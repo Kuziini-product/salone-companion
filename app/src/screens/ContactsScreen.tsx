@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Pencil, ChevronRight } from 'lucide-react-native';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { EmptyState } from '../components/EmptyState';
 import { Button } from '../components/Button';
@@ -23,6 +24,7 @@ interface Row {
   email:            string | null;
   phone:            string | null;
   company_name:     string | null;
+  company_id:       string | null;
   card_image_path:  string | null;
   created_at:       string;
 }
@@ -39,7 +41,7 @@ export function ContactsScreen() {
   const load = useCallback(async () => {
     const { data, error } = await supabase
       .from('contacts')
-      .select('id, full_name, role, email, phone, company_name, card_image_path, created_at')
+      .select('id, full_name, role, email, phone, company_name, company_id, card_image_path, created_at')
       .order('created_at', { ascending: false });
     if (error) {
       // eslint-disable-next-line no-console
@@ -84,38 +86,66 @@ export function ContactsScreen() {
     const thumb = thumbs[item.id];
     const initial =
       (item.full_name?.[0] ?? item.company_name?.[0] ?? '?').toUpperCase();
+    const hasCompany = !!item.company_id;
     return (
-      <Pressable
-        onPress={() => nav.navigate('ContactDetail', { contactId: item.id })}
-        style={({ pressed }) => [
+      <View
+        style={[
           styles.row,
           { backgroundColor: palette.bgElevated, borderColor: palette.border },
-          pressed && { opacity: 0.7 },
         ]}
       >
-        {thumb ? (
-          <Image source={{ uri: thumb }} style={styles.thumb} />
-        ) : (
-          <View style={[styles.thumb, styles.thumbFallback, { backgroundColor: accents.contacts.soft }]}>
-            <Text style={[styles.thumbInitial, { color: accents.contacts.deep }]}>{initial}</Text>
+        <Pressable
+          onPress={() => {
+            if (hasCompany) nav.navigate('CompanyCard', { companyId: item.company_id });
+            else nav.navigate('ContactDetail', { contactId: item.id });
+          }}
+          style={({ pressed }) => [styles.rowMain, pressed && { opacity: 0.7 }]}
+        >
+          {thumb ? (
+            <Image source={{ uri: thumb }} style={styles.thumb} />
+          ) : (
+            <View style={[styles.thumb, styles.thumbFallback, { backgroundColor: accents.contacts.soft }]}>
+              <Text style={[styles.thumbInitial, { color: accents.contacts.deep }]}>{initial}</Text>
+            </View>
+          )}
+          <View style={styles.rowText}>
+            <Text style={[styles.rowName, { color: palette.text }]} numberOfLines={1}>
+              {item.full_name || 'Contact fără nume'}
+            </Text>
+            {(item.role || item.company_name) ? (
+              <Text style={[styles.rowSub, { color: palette.textDim }]} numberOfLines={1}>
+                {[item.role, item.company_name].filter(Boolean).join(' · ')}
+              </Text>
+            ) : null}
+            {item.email ? (
+              <Text style={[styles.rowMeta, { color: palette.textFaint }]} numberOfLines={1}>
+                {item.email}
+              </Text>
+            ) : null}
+            {hasCompany ? (
+              <View style={[styles.linkBadge, { backgroundColor: accents.companies.soft }]}>
+                <Text style={[styles.linkBadgeText, { color: accents.companies.deep }]}>
+                  → vezi card companie
+                </Text>
+              </View>
+            ) : null}
           </View>
-        )}
-        <View style={styles.rowText}>
-          <Text style={[styles.rowName, { color: palette.text }]} numberOfLines={1}>
-            {item.full_name || 'Contact fără nume'}
-          </Text>
-          {(item.role || item.company_name) ? (
-            <Text style={[styles.rowSub, { color: palette.textDim }]} numberOfLines={1}>
-              {[item.role, item.company_name].filter(Boolean).join(' · ')}
-            </Text>
-          ) : null}
-          {item.email ? (
-            <Text style={[styles.rowMeta, { color: palette.textFaint }]} numberOfLines={1}>
-              {item.email}
-            </Text>
-          ) : null}
-        </View>
-      </Pressable>
+          <ChevronRight size={20} color={palette.textFaint} strokeWidth={2} />
+        </Pressable>
+
+        {/* Always-available edit button (opens ContactDetail to fix fields) */}
+        <Pressable
+          onPress={() => nav.navigate('ContactDetail', { contactId: item.id })}
+          style={({ pressed }) => [
+            styles.editBtn,
+            { backgroundColor: palette.bgSubtle, borderColor: palette.border },
+            pressed && { opacity: 0.6 },
+          ]}
+          accessibilityLabel="Editează contactul"
+        >
+          <Pencil size={14} color={palette.textDim} strokeWidth={2} />
+        </Pressable>
+      </View>
     );
   };
 
@@ -223,11 +253,22 @@ const styles = StyleSheet.create({
 
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     borderRadius: radius.lg,
     borderWidth: 1,
+    overflow: 'hidden',
+  },
+  rowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: spacing.sm,
     gap: spacing.md,
+  },
+  editBtn: {
+    width: 44,
+    alignItems: 'center', justifyContent: 'center',
+    borderLeftWidth: StyleSheet.hairlineWidth,
   },
   thumb:        { width: 64, height: 40, borderRadius: radius.md, backgroundColor: '#E2E8F0' },
   thumbFallback:{ alignItems: 'center', justifyContent: 'center' },
@@ -236,6 +277,13 @@ const styles = StyleSheet.create({
   rowName:      { ...typography.bodyBold },
   rowSub:       { ...typography.caption },
   rowMeta:      { ...typography.caption },
+  linkBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8, paddingVertical: 2,
+    borderRadius: radius.pill,
+    marginTop: 4,
+  },
+  linkBadgeText: { ...typography.micro, fontWeight: '600' },
 
   noMatches: { ...typography.body, textAlign: 'center', marginTop: spacing.xl },
 });
