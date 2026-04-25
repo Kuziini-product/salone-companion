@@ -296,9 +296,6 @@ export function CompanyCardScreen() {
           style={[styles.hero, { backgroundColor: '#0F172A', borderColor: palette.border }]}
           imageStyle={{ borderRadius: radius.xl }}
         >
-          {/* Bottom gradient for text contrast */}
-          <View style={styles.heroGradient} />
-
           {/* Logo badge top-left */}
           <View style={styles.logoBadge}>
             {logoCandidate ? (
@@ -324,19 +321,25 @@ export function CompanyCardScreen() {
               : <Heart size={22} color={isFav ? '#FFFFFF' : '#EF4444'} fill={isFav ? '#FFFFFF' : 'transparent'} strokeWidth={2} />}
           </Pressable>
 
-          {/* Name + meta on the gradient */}
-          <View style={styles.heroFooter}>
-            <View style={styles.heroNameRow}>
-              <Text style={styles.heroName} numberOfLines={2}>{company.name}</Text>
-              {flag ? <Text style={styles.heroFlag}>{flag}</Text> : null}
-            </View>
-            {(company.hall || company.stand) ? (
-              <Text style={styles.heroMeta}>
-                Hall {[company.hall, company.stand].filter(Boolean).join(' · ')}
-              </Text>
-            ) : null}
-          </View>
         </ImageBackground>
+
+        {/* Name + flag centered under hero */}
+        <View style={styles.nameUnderHero}>
+          <Text style={[styles.nameLarge, { color: palette.text }]} numberOfLines={2}>
+            {company.name}
+          </Text>
+          {flag ? <Text style={styles.flagLarge}>{flag}</Text> : null}
+        </View>
+
+        {/* Hall + stand line below the name */}
+        {(company.hall || company.stand) ? (
+          <View style={styles.metaUnderHero}>
+            <MapPin size={14} color={palette.textDim} strokeWidth={2} />
+            <Text style={[styles.meta, { color: palette.textDim }]}>
+              Hall {[company.hall, company.stand].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
+        ) : null}
 
         {/* Status + Quick Actions row */}
         <View style={styles.actionsRow}>
@@ -536,22 +539,13 @@ const styles = StyleSheet.create({
 
   scroll: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
 
-  // Hero — full image background, logo as small badge top-left, name on
-  // a dark gradient at the bottom. No white plate covering the photo.
+  // Hero — clean photo, logo badge top-left, favorite top-right. No overlay.
   hero: {
     width: '100%',
     height: 260,
     borderRadius: radius.xl,
     borderWidth: 1,
     overflow: 'hidden',
-    justifyContent: 'space-between',
-  },
-  heroGradient: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
-    height: '55%',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderBottomLeftRadius: radius.xl,
-    borderBottomRightRadius: radius.xl,
   },
   logoBadge: {
     position: 'absolute', top: spacing.md, left: spacing.md,
@@ -565,25 +559,22 @@ const styles = StyleSheet.create({
   },
   logoBadgeImg:     { width: '100%', height: '100%' },
   logoBadgeInitial: { fontSize: 44, fontWeight: '800', color: '#0F172A', letterSpacing: -1 },
-  heroFooter: {
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
-    gap: 4,
+  // Name + flag block centered under the hero photo.
+  nameUnderHero: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
   },
-  heroNameRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
-  heroName: {
-    color: '#FFFFFF',
-    fontSize: 28, fontWeight: '700',
+  nameLarge: {
+    fontSize: 26, fontWeight: '700', letterSpacing: -0.4,
+    textAlign: 'center',
     flexShrink: 1,
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowRadius: 8,
   },
-  heroFlag: { fontSize: 28 },
-  heroMeta: {
-    color: 'rgba(255,255,255,0.85)',
-    ...typography.body,
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowRadius: 6,
+  flagLarge: { fontSize: 26 },
+  metaUnderHero: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, marginTop: 4,
   },
   favBtn: {
     position: 'absolute', top: spacing.md, right: spacing.md,

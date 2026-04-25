@@ -51,20 +51,48 @@ Deno.serve(async (req) => {
     // Cap parsing to first 200KB (everything we need is in <head>).
     const head = html.slice(0, 200_000);
 
-    // Try og:image, then twitter:image, then favicon.
+    // Priority chain:
+    //   1. og:image (most curated)
+    //   2. twitter:image
+    //   3. link rel=image_src
+    //   4. First <img> in the body that looks like a hero (large or in a
+    //      header/banner element)
+    //   5. First inline background-image url(...) in a hero-ish element
     const patterns = [
       /<meta[^>]+property=["']og:image:secure_url["'][^>]+content=["']([^"']+)["']/i,
       /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
       /<meta[^>]+name=["']og:image["'][^>]+content=["']([^"']+)["']/i,
       /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
       /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+      /<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["']/i,
     ];
     for (const p of patterns) {
       const m = head.match(p);
-      if (m?.[1]) {
-        resolved = m[1].trim();
+      if (m?.[1]) { resolved = m[1].trim(); break; }
+    }
+
+    // Fallback: scan body for first reasonable <img>. Skip 1x1 pixels,
+    // common analytics trackers, sprites, icons.
+    if (!resolved) {
+      const body = html.slice(0, 800_000);
+      const imgRe = /<img[^>]+src=["']([^"']+)["']/gi;
+      let match: RegExpExecArray | null;
+      while ((match = imgRe.exec(body))) {
+        const src = match[1].trim();
+        if (!src) continue;
+        if (/^data:/i.test(src)) continue;
+        if (/sprite|icon|logo|favicon|spinner|loader|pixel|analytics|tracking|1x1/i.test(src)) continue;
+        if (/\.svg(\?|$)/i.test(src)) continue; // skip SVG icons
+        // Prefer absolute URLs, but accept relative too — we resolve below.
+        resolved = src;
         break;
       }
+    }
+
+    // Fallback: inline background-image: url(...).
+    if (!resolved) {
+      const bg = html.match(/background-image\s*:\s*url\(["']?([^"')]+)["']?\)/i);
+      if (bg?.[1]) resolved = bg[1].trim();
     }
 
     // Resolve protocol-relative or path-only URLs against the site root.
