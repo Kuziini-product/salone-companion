@@ -31,6 +31,7 @@ import { MatchResultScreen }       from './src/screens/MatchResultScreen';
 import { ContactsScreen }          from './src/screens/ContactsScreen';
 import { ContactDetailScreen }     from './src/screens/ContactDetailScreen';
 import { ProfileScreen }           from './src/screens/ProfileScreen';
+import { MapScreen }               from './src/screens/MapScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -157,6 +158,11 @@ function RootNavigator() {
               name="Capture"
               component={CaptureScreen}
               options={{ title: 'Scanare', headerShown: true }}
+            />
+            <Stack.Screen
+              name="Map"
+              component={MapScreen}
+              options={{ title: 'Hartă expozanți', headerShown: true }}
             />
             <Stack.Screen
               name="CompanyCard"

@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Search } from 'lucide-react-native';
+import { Search, MapPin } from 'lucide-react-native';
 import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -89,6 +89,22 @@ export function CategoriesScreen() {
           columnWrapperStyle={{ gap: spacing.md }}
           contentContainerStyle={styles.listContent}
           ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+          ListHeaderComponent={
+            <Pressable
+              style={({ pressed }) => [
+                styles.mapBtn,
+                { backgroundColor: accents.profile.base },
+                pressed && { opacity: 0.85 },
+              ]}
+              onPress={() => nav.navigate('Map')}
+            >
+              <MapPin size={22} color="#FFFFFF" strokeWidth={2} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.mapBtnTitle}>Hartă expozanți</Text>
+                <Text style={styles.mapBtnSub}>Vezi toți pe Google Maps</Text>
+              </View>
+            </Pressable>
+          }
           renderItem={({ item }) => {
             const count = counts[item.id] ?? 0;
             return (
@@ -183,6 +199,16 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   cardCount: { ...typography.caption, textAlign: 'center' },
+
+  mapBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    padding: spacing.lg, borderRadius: radius.xl,
+    marginBottom: spacing.lg,
+    shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  mapBtnTitle: { color: '#FFFFFF', ...typography.bodyBold },
+  mapBtnSub:   { color: 'rgba(255,255,255,0.85)', ...typography.caption, marginTop: 2 },
 
   footer: {
     textAlign: 'center',
