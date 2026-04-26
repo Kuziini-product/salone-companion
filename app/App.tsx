@@ -1,7 +1,7 @@
 import '@expo/metro-runtime';
 import 'react-native-gesture-handler';
 import React from 'react';
-import { Platform, ActivityIndicator, View, Text } from 'react-native';
+import { Platform, ActivityIndicator, Image, View, Text, StyleSheet } from 'react-native';
 import { enableScreens } from 'react-native-screens';
 if (Platform.OS !== 'web') enableScreens(true);
 
@@ -200,6 +200,36 @@ function RootNavigator() {
 // ---------------------------------------------------------------------------
 // App entry
 // ---------------------------------------------------------------------------
+const KUZIINI_INSIGNIA = require('./assets/kuziini-insignia.png');
+
+/** Subtle Kuziini K watermark behind every screen — pointerEvents=none so
+ *  it never blocks interaction. Sits on top via absoluteFill to be visible
+ *  even when screen backgrounds are opaque. */
+function Watermark() {
+  return (
+    <View pointerEvents="none" style={watermarkStyles.wrap}>
+      <Image
+        source={KUZIINI_INSIGNIA}
+        style={watermarkStyles.img}
+        resizeMode="contain"
+      />
+    </View>
+  );
+}
+
+const watermarkStyles = StyleSheet.create({
+  wrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  img: {
+    width: '55%',
+    aspectRatio: 0.85,
+    opacity: 0.045,
+  },
+});
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -209,6 +239,7 @@ export default function App() {
             <RootNavigator />
           </AuthProvider>
         </SafeAreaProvider>
+        <Watermark />
       </GestureHandlerRootView>
     </ErrorBoundary>
   );
