@@ -5,7 +5,7 @@
 
 import { Platform } from 'react-native';
 
-export type PickSource = 'camera' | 'gallery';
+export type PickSource = 'camera' | 'gallery' | 'any';
 
 export async function pickImageWeb(source: PickSource): Promise<string | null> {
   if (Platform.OS !== 'web' || typeof document === 'undefined') return null;
@@ -14,6 +14,8 @@ export async function pickImageWeb(source: PickSource): Promise<string | null> {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
+    // 'camera' forces the rear camera. 'any' lets the OS show its native
+    // picker (which usually offers BOTH "Take Photo" and "Choose from Library").
     if (source === 'camera') {
       input.setAttribute('capture', 'environment');
     }

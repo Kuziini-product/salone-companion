@@ -16,8 +16,9 @@ interface Pin {
 }
 
 interface Props {
-  pins:   Pin[];
-  onPick: (companyId: string) => void;
+  pins:    Pin[];
+  focusId?: string;
+  onPick:  (companyId: string) => void;
 }
 
 // Default Leaflet marker icons reference assets via webpack — broken with
@@ -32,9 +33,10 @@ const ICON = L.icon({
   shadowSize:  [41, 41],
 });
 
-export function LeafletMap({ pins, onPick }: Props) {
+export function LeafletMap({ pins, focusId, onPick }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const markerByIdRef = useRef<Map<string, L.Marker>>(new Map());
 
   useEffect(() => {
     if (!ref.current || mapRef.current) return;
@@ -54,6 +56,7 @@ export function LeafletMap({ pins, onPick }: Props) {
     // Group close-by markers using a feature group for now (cluster plugin
     // would be nicer but adds 70KB; FlatList of bounds works fine for ≤2000 pins).
     const group = L.featureGroup();
+    markerByIdRef.current.clear();
     for (const p of pins) {
       const marker = L.marker([p.lat, p.lng], { icon: ICON }).bindPopup(
         `<div style="font-family: -apple-system, system-ui, sans-serif; min-width:160px">
@@ -66,11 +69,22 @@ export function LeafletMap({ pins, onPick }: Props) {
          </div>`,
       );
       marker.addTo(group);
+      markerByIdRef.current.set(p.id, marker);
     }
     group.addTo(map);
 
-    // Fit to all pins.
-    try { map.fitBounds(group.getBounds(), { padding: [40, 40] }); } catch {}
+    // Focus on a single pin if requested, else fit to all.
+    if (focusId) {
+      const target = markerByIdRef.current.get(focusId);
+      if (target) {
+        map.setView(target.getLatLng(), 14, { animate: true });
+        target.openPopup();
+      } else {
+        try { map.fitBounds(group.getBounds(), { padding: [40, 40] }); } catch {}
+      }
+    } else {
+      try { map.fitBounds(group.getBounds(), { padding: [40, 40] }); } catch {}
+    }
 
     // Click handler on the popup link.
     map.on('popupopen', (e: any) => {
@@ -86,8 +100,9 @@ export function LeafletMap({ pins, onPick }: Props) {
 
     return () => {
       group.remove();
+      markerByIdRef.current.clear();
     };
-  }, [pins, onPick]);
+  }, [pins, onPick, focusId]);
 
   return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
 }

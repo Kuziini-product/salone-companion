@@ -12,13 +12,15 @@ import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import {
   Heart, Phone, Mail, MapPin, Globe, Camera, MessageSquarePlus,
-  Sparkles, Save, MessageCircle,
+  Sparkles, Save, MessageCircle, ImagePlus, Map as MapIcon,
+  Download, Share2, X as XIcon,
 } from 'lucide-react-native';
 import { useTheme, accents, statusColors, spacing, radius, typography } from '../theme';
 import { Button } from '../components/Button';
 import { BrandLogo } from '../components/BrandLogo';
 import { VoiceMic } from '../components/VoiceMic';
 import { CompanyChatModal } from '../components/CompanyChatModal';
+import { PhotoViewer } from '../components/PhotoViewer';
 import { supabase, functionUrl } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { countryFlagEmoji, brandLogoUrl, faviconUrl } from '../lib/brandHelpers';
@@ -86,6 +88,8 @@ export function CompanyCardScreen() {
   const [chatOpen, setChatOpen] = useState(false);
   const [heroBg, setHeroBg] = useState<string | null>(null);
   const [logoBroken, setLogoBroken] = useState(false);
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     const [{ data: c }, { data: v }] = await Promise.all([
@@ -178,7 +182,7 @@ export function CompanyCardScreen() {
     } finally { setSavingNotes(false); }
   }
 
-  async function uploadImage(source: 'camera' | 'gallery') {
+  async function uploadImage(source: 'camera' | 'gallery' | 'any') {
     if (busyImg) return;
     const uri = await pickImageWeb(source);
     if (!uri) return;
@@ -337,22 +341,13 @@ export function CompanyCardScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => uploadImage('camera')}
+            onPress={() => uploadImage('any')}
             disabled={busyImg}
             style={({ pressed }) => [styles.qaBtn, { backgroundColor: accents.capture.soft }, pressed && { opacity: 0.7 }]}
-            accessibilityLabel="Fă o poză"
+            accessibilityLabel="Adaugă poză (camera sau galerie)"
           >
             {busyImg ? <ActivityIndicator size="small" color={accents.capture.deep} /> :
-              <Camera size={20} color={accents.capture.deep} strokeWidth={2} />}
-          </Pressable>
-
-          <Pressable
-            onPress={() => uploadImage('gallery')}
-            disabled={busyImg}
-            style={({ pressed }) => [styles.qaBtn, { backgroundColor: accents.companies.soft }, pressed && { opacity: 0.7 }]}
-            accessibilityLabel="Adaugă din galerie"
-          >
-            <Camera size={20} color={accents.companies.deep} strokeWidth={2} />
+              <ImagePlus size={20} color={accents.capture.deep} strokeWidth={2} />}
           </Pressable>
 
           <Pressable
@@ -362,20 +357,133 @@ export function CompanyCardScreen() {
           >
             <MessageSquarePlus size={20} color={accents.profile.deep} strokeWidth={2} />
           </Pressable>
+
+          <Pressable
+            onPress={() => nav.navigate('Map', { focusCompanyId: companyId })}
+            style={({ pressed }) => [styles.qaBtn, { backgroundColor: accents.companies.soft }, pressed && { opacity: 0.7 }]}
+            accessibilityLabel="Vezi pe hartă"
+          >
+            <MapIcon size={20} color={accents.companies.deep} strokeWidth={2} />
+          </Pressable>
         </View>
 
         {/* Photo gallery */}
         {images.length > 0 ? (
           <View style={[styles.section, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
-            <Text style={[styles.sectionLabel, { color: palette.textDim }]}>POZE ({images.length})</Text>
-            <View style={styles.grid}>
-              {images.map((img) => (
-                <View key={img.id} style={styles.thumbWrap}>
-                  {thumbs[img.id]
-                    ? <Image source={{ uri: thumbs[img.id] }} style={styles.thumb} />
-                    : <View style={[styles.thumb, { backgroundColor: palette.bgSubtle }]} />}
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionLabel, { color: palette.textDim }]}>
+                POZE ({images.length}){selected.size > 0 ? ` · ${selected.size} selectate` : ''}
+              </Text>
+              {selected.size > 0 ? (
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <Pressable
+                    onPress={async () => {
+                      for (const id of selected) {
+                        const u = thumbs[id];
+                        if (!u) continue;
+                        try {
+                          const r = await fetch(u);
+                          const b = await r.blob();
+                          if (typeof document !== 'undefined') {
+                            const url = URL.createObjectURL(b);
+                            const a = document.createElement('a');
+                            a.href = url; a.download = `salone-${id}.jpg`;
+                            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                          }
+                        } catch {}
+                      }
+                      setSelected(new Set());
+                    }}
+                    style={({ pressed }) => [
+                      styles.bulkBtn, { backgroundColor: accents.companies.base },
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Download size={14} color="#FFFFFF" strokeWidth={2.5} />
+                    <Text style={styles.bulkBtnText}>Descarcă</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={async () => {
+                      const files: File[] = [];
+                      for (const id of selected) {
+                        const u = thumbs[id];
+                        if (!u) continue;
+                        try {
+                          const r = await fetch(u);
+                          const b = await r.blob();
+                          files.push(new File([b], `salone-${id}.jpg`, { type: b.type || 'image/jpeg' }));
+                        } catch {}
+                      }
+                      const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+                      if (nav?.canShare?.({ files }) && files.length > 0) {
+                        try { await nav.share({ files, title: 'Salone del Mobile' }); } catch {}
+                      } else if (typeof window !== 'undefined' && files.length > 0) {
+                        const urls = [...selected].map((id) => thumbs[id]).filter(Boolean).join(' ');
+                        window.open(`https://wa.me/?text=${encodeURIComponent(urls)}`, '_blank');
+                      }
+                      setSelected(new Set());
+                    }}
+                    style={({ pressed }) => [
+                      styles.bulkBtn, { backgroundColor: accents.contacts.base },
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Share2 size={14} color="#FFFFFF" strokeWidth={2.5} />
+                    <Text style={styles.bulkBtnText}>Trimite</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setSelected(new Set())}
+                    style={({ pressed }) => [
+                      styles.bulkBtn, { backgroundColor: palette.bgSubtle },
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <XIcon size={14} color={palette.textDim} strokeWidth={2.5} />
+                  </Pressable>
                 </View>
-              ))}
+              ) : null}
+            </View>
+            <View style={styles.grid}>
+              {images.map((img) => {
+                const url = thumbs[img.id];
+                const sel = selected.has(img.id);
+                return (
+                  <Pressable
+                    key={img.id}
+                    onPress={() => {
+                      if (selected.size > 0) {
+                        setSelected((s) => {
+                          const next = new Set(s);
+                          if (next.has(img.id)) next.delete(img.id); else next.add(img.id);
+                          return next;
+                        });
+                      } else if (url) {
+                        setViewerUrl(url);
+                      }
+                    }}
+                    onLongPress={() => {
+                      setSelected((s) => {
+                        const next = new Set(s);
+                        next.add(img.id);
+                        return next;
+                      });
+                    }}
+                    style={styles.thumbWrap}
+                  >
+                    {url
+                      ? <Image source={{ uri: url }} style={styles.thumb} />
+                      : <View style={[styles.thumb, { backgroundColor: palette.bgSubtle }]} />}
+                    {sel ? (
+                      <View style={[styles.selectionOverlay, { borderColor: accents.companies.base }]}>
+                        <View style={[styles.checkBadge, { backgroundColor: accents.companies.base }]}>
+                          <Text style={styles.checkBadgeText}>✓</Text>
+                        </View>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
         ) : null}
@@ -515,6 +623,11 @@ export function CompanyCardScreen() {
         companyId={companyId}
         companyName={company.name}
       />
+      <PhotoViewer
+        visible={!!viewerUrl}
+        url={viewerUrl}
+        onClose={() => setViewerUrl(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -621,8 +734,25 @@ const styles = StyleSheet.create({
   aiBtnText: { ...typography.caption, fontWeight: '600' },
 
   grid:     { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
-  thumbWrap:{ width: '31%' },
+  thumbWrap:{ width: '31%', position: 'relative' },
   thumb:    { width: '100%', aspectRatio: 1, borderRadius: radius.md, backgroundColor: '#000' },
+  selectionOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 3, borderRadius: radius.md,
+    alignItems: 'flex-end', justifyContent: 'flex-start',
+    padding: 6,
+  },
+  checkBadge: {
+    width: 24, height: 24, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkBadgeText: { color: '#FFFFFF', fontWeight: '800' },
+  bulkBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: radius.pill,
+  },
+  bulkBtnText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
 
   contactRow: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, gap: spacing.md },
   contactKind:  { ...typography.micro },

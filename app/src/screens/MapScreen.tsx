@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useTheme, accents, spacing, typography } from '../theme';
 import { supabase } from '../lib/supabase';
 
@@ -19,9 +19,13 @@ interface Pin {
   lng:   number;
 }
 
+type Params = { Map: { focusCompanyId?: string } };
+
 // --- Web-only map module loaded via dynamic require so the bundler doesn't
 // trip on `window` at module-eval time when running on native.
-let MapImpl: React.ComponentType<{ pins: Pin[]; onPick: (id: string) => void }> | null = null;
+let MapImpl:
+  | React.ComponentType<{ pins: Pin[]; focusId?: string; onPick: (id: string) => void }>
+  | null = null;
 if (Platform.OS === 'web') {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   MapImpl = require('./_LeafletMap').LeafletMap;
@@ -30,6 +34,8 @@ if (Platform.OS === 'web') {
 export function MapScreen() {
   const { palette } = useTheme();
   const nav = useNavigation<{ navigate: (s: string, p?: object) => void }>();
+  const route = useRoute<RouteProp<Params, 'Map'>>();
+  const focusId = route.params?.focusCompanyId;
   const [pins, setPins] = useState<Pin[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -87,7 +93,11 @@ export function MapScreen() {
 
   return (
     <View style={styles.flex}>
-      <MapImpl pins={pins} onPick={(id) => nav.navigate('CompanyCard', { companyId: id })} />
+      <MapImpl
+        pins={pins}
+        focusId={focusId}
+        onPick={(id) => nav.navigate('CompanyCard', { companyId: id })}
+      />
     </View>
   );
 }
