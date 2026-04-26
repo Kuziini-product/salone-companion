@@ -3,7 +3,9 @@
 // Two image-search buttons (camera + gallery) trigger searchByImage.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+
+const KUZIINI_LOGO = require('../../assets/kuziini-logo.png');
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Search, Camera, Image as ImageIcon } from 'lucide-react-native';
@@ -147,6 +149,15 @@ export function CompaniesScreen() {
           <Text style={[styles.kicker, { color: palette.textFaint }]}>SALONE 2026</Text>
           <Text style={[styles.title, { color: palette.text }]}>Expozanți</Text>
         </View>
+        <Image
+          source={KUZIINI_LOGO}
+          style={[
+            styles.brandMark,
+            palette.mode === 'dark' && { tintColor: palette.text },
+          ]}
+          resizeMode="contain"
+          accessibilityLabel="Kuziini"
+        />
         {total !== null ? (
           <View style={[styles.countBadge, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
             <Text style={[styles.countBadgeText, { color: accents.companies.base }]}>{total}</Text>
@@ -339,6 +350,11 @@ const styles = StyleSheet.create({
   },
   kicker:    { ...typography.micro, marginBottom: 4 },
   title:     { ...typography.display, letterSpacing: -0.5 },
+  brandMark: {
+    width: 88, height: 28,
+    marginRight: spacing.sm,
+    opacity: 0.85,
+  },
   countBadge: {
     minWidth: 48, height: 48, paddingHorizontal: spacing.md,
     borderRadius: radius.pill, borderWidth: 1,

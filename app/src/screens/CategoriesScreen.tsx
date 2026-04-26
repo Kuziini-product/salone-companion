@@ -2,8 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+
+const KUZIINI_LOGO = require('../../assets/kuziini-logo.png');
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Search, MapPin } from 'lucide-react-native';
@@ -57,6 +59,15 @@ export function CategoriesScreen() {
           <Text style={[styles.kicker, { color: palette.textFaint }]}>EXPLOREAZĂ</Text>
           <Text style={[styles.title, { color: palette.text }]}>Categorii</Text>
         </View>
+        <Image
+          source={KUZIINI_LOGO}
+          style={[
+            styles.brandMark,
+            palette.mode === 'dark' && { tintColor: palette.text },
+          ]}
+          resizeMode="contain"
+          accessibilityLabel="Kuziini"
+        />
         {!loading ? (
           <View style={[styles.countBadge, { backgroundColor: palette.bgElevated, borderColor: palette.border }]}>
             <Text style={[styles.countBadgeText, { color: accents.profile.base }]}>{filtered.length}</Text>
@@ -93,16 +104,12 @@ export function CategoriesScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.mapBtn,
-                { backgroundColor: accents.profile.base },
-                pressed && { opacity: 0.85 },
+                { backgroundColor: palette.bgElevated, borderColor: palette.border },
+                pressed && { opacity: 0.7 },
               ]}
               onPress={() => nav.navigate('Map')}
             >
-              <MapPin size={22} color="#FFFFFF" strokeWidth={2} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.mapBtnTitle}>Hartă expozanți</Text>
-                <Text style={styles.mapBtnSub}>Vezi toți pe Google Maps</Text>
-              </View>
+              <Text style={[styles.mapBtnTitle, { color: palette.text }]}>Hartă expozanți</Text>
             </Pressable>
           }
           renderItem={({ item }) => {
@@ -153,6 +160,11 @@ const styles = StyleSheet.create({
   },
   kicker: { ...typography.micro, marginBottom: 4 },
   title:  { ...typography.display, letterSpacing: -0.5 },
+  brandMark: {
+    width: 88, height: 28,
+    marginRight: spacing.sm,
+    opacity: 0.85,
+  },
   countBadge: {
     minWidth: 44, height: 44, paddingHorizontal: spacing.sm,
     borderRadius: radius.pill, borderWidth: 1,
@@ -201,14 +213,13 @@ const styles = StyleSheet.create({
   cardCount: { ...typography.caption, textAlign: 'center' },
 
   mapBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    padding: spacing.lg, borderRadius: radius.xl,
-    marginBottom: spacing.lg,
-    shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    minHeight: 56,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: spacing.md,
   },
-  mapBtnTitle: { color: '#FFFFFF', ...typography.bodyBold },
-  mapBtnSub:   { color: 'rgba(255,255,255,0.85)', ...typography.caption, marginTop: 2 },
+  mapBtnTitle: { ...typography.subheading, textAlign: 'center', letterSpacing: -0.2 },
 
   footer: {
     textAlign: 'center',
