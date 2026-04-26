@@ -201,6 +201,7 @@ export function CompaniesScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.chipScroll}
         contentContainerStyle={styles.chipRow}
       >
         {QUICK_FILTERS.map((f) => {
@@ -354,9 +355,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
+  chipScroll: {
+    flexGrow: 0, flexShrink: 0,   // fixed-height row — don't fight the FlatList for space
+    maxHeight: 56,
+    marginBottom: spacing.md,
+  },
   chipRow: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    alignItems: 'center',
     gap: spacing.sm,
   },
   chip: {
