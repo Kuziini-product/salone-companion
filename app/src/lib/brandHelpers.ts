@@ -58,6 +58,31 @@ const ISO3_TO_ISO2: Record<string, string> = {
   BHR: 'BH', OMN: 'OM', IRN: 'IR', PAK: 'PK', BGD: 'BD', LKA: 'LK',
 };
 
+// Friendly Romanian-ish display names for the countries that show up at Salone.
+const ISO3_TO_NAME: Record<string, string> = {
+  ITA: 'Italia',     ESP: 'Spania',     PRT: 'Portugalia', DEU: 'Germania',
+  BEL: 'Belgia',     BRA: 'Brazilia',   TUR: 'Turcia',     FRA: 'Franța',
+  ROU: 'România',    SWE: 'Suedia',     NLD: 'Olanda',     THA: 'Thailanda',
+  UKR: 'Ucraina',    GBR: 'Marea Britanie', POL: 'Polonia', GRC: 'Grecia',
+  DNK: 'Danemarca',  IDN: 'Indonezia',  HRV: 'Croația',    JPN: 'Japonia',
+  USA: 'Statele Unite', CHE: 'Elveția', CZE: 'Cehia',      LVA: 'Letonia',
+  IND: 'India',      AUT: 'Austria',    FIN: 'Finlanda',   SMR: 'San Marino',
+  BIH: 'Bosnia',     KOR: 'Coreea de Sud', SAU: 'Arabia Saudită', SVN: 'Slovenia',
+  EGY: 'Egipt',      ARE: 'Emirate',    ZAF: 'Africa de Sud', LTU: 'Lituania',
+  MEX: 'Mexic',      LIE: 'Liechtenstein', NOR: 'Norvegia', NZL: 'Noua Zeelandă',
+  GTM: 'Guatemala',  CHN: 'China',      KAZ: 'Kazahstan',  HKG: 'Hong Kong',
+  TWN: 'Taiwan',     SGP: 'Singapore',  CAN: 'Canada',     ARG: 'Argentina',
+  AUS: 'Australia',  CHL: 'Chile',      EST: 'Estonia',    HUN: 'Ungaria',
+  IRL: 'Irlanda',    ISL: 'Islanda',    ISR: 'Israel',     LBN: 'Liban',
+  MAR: 'Maroc',      MLT: 'Malta',      MYS: 'Malaysia',   PHL: 'Filipine',
+  RUS: 'Rusia',      SVK: 'Slovacia',   TUN: 'Tunisia',    VNM: 'Vietnam',
+};
+
+export function countryName(iso3: string | null | undefined): string {
+  if (!iso3) return '';
+  return ISO3_TO_NAME[iso3.toUpperCase()] ?? iso3;
+}
+
 /** Convert ISO3 country code to flag emoji (via ISO2). */
 export function countryFlagEmoji(iso3: string | null | undefined): string {
   if (!iso3) return '';

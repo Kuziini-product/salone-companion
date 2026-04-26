@@ -11,10 +11,11 @@ import { useTheme, accents, spacing, radius, typography } from '../theme';
 import { EmptyState } from '../components/EmptyState';
 import { BrandLogo } from '../components/BrandLogo';
 import { supabase } from '../lib/supabase';
-import { countryFlagEmoji } from '../lib/brandHelpers';
+import { countryFlagEmoji, countryName } from '../lib/brandHelpers';
 import { pickImageWeb } from '../lib/pickImage';
 import { searchByImage } from '../lib/imageSearch';
 import { expandQuery } from '../lib/searchTranslate';
+import { CountryPicker } from '../components/CountryPicker';
 
 interface Company {
   id: string; name: string; hall: string | null; stand: string | null;
@@ -31,9 +32,6 @@ interface QuickFilter {
 }
 
 const QUICK_FILTERS: QuickFilter[] = [
-  { id: 'fav-it', label: '🇮🇹 Italia',  apply: (q) => q.eq('country', 'ITA') },
-  { id: 'fav-de', label: '🇩🇪 Germania', apply: (q) => q.eq('country', 'DEU') },
-  { id: 'fav-fr', label: '🇫🇷 Franța',  apply: (q) => q.eq('country', 'FRA') },
   { id: 'kit',    label: '🍳 Bucătărie', apply: (q) => q.in('event_code', ['EUC', 'FTK']) },
   { id: 'bath',   label: '🚿 Baie',      apply: (q) => q.eq('event_code', 'ARB') },
   { id: 'light',  label: '💡 Iluminat',  apply: (q) => q.eq('event_code', 'EIM') },
@@ -52,6 +50,8 @@ export function CompaniesScreen() {
   const [search, setSearch]     = useState('');
   const [query, setQuery]       = useState('');
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [countryFilter, setCountryFilter] = useState<string | null>(null);
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
 
   // Debounce input → query.
   useEffect(() => {
@@ -74,6 +74,7 @@ export function CompaniesScreen() {
       const f = QUICK_FILTERS.find((x) => x.id === id);
       if (f) q = f.apply(q);
     }
+    if (countryFilter) q = q.eq('country', countryFilter);
 
     if (query) {
       const terms = expandQuery(query);
@@ -91,7 +92,7 @@ export function CompaniesScreen() {
       if (orParts.length > 0) q = q.or(orParts.join(','));
     }
     return q;
-  }, [query, activeFilters]);
+  }, [query, activeFilters, countryFilter]);
 
   // Initial load (and re-load when query changes).
   const load = useCallback(async () => {
@@ -204,6 +205,24 @@ export function CompaniesScreen() {
         style={styles.chipScroll}
         contentContainerStyle={styles.chipRow}
       >
+        {/* Country chip — opens picker with all countries in catalog */}
+        <Pressable
+          onPress={() => setCountryPickerOpen(true)}
+          style={({ pressed }) => [
+            styles.chip,
+            countryFilter
+              ? { backgroundColor: palette.text, borderColor: palette.text }
+              : { backgroundColor: palette.bgElevated, borderColor: palette.border },
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Text style={[styles.chipText, { color: countryFilter ? palette.bg : palette.text }]}>
+            {countryFilter
+              ? `${countryFlagEmoji(countryFilter) || '🌍'} ${countryName(countryFilter)} ✕`
+              : '🌍 Țară'}
+          </Text>
+        </Pressable>
+
         {QUICK_FILTERS.map((f) => {
           const active = activeFilters.includes(f.id);
           return (
@@ -226,15 +245,23 @@ export function CompaniesScreen() {
             </Pressable>
           );
         })}
-        {activeFilters.length > 0 ? (
+        {(activeFilters.length > 0 || countryFilter) ? (
           <Pressable
-            onPress={() => setActiveFilters([])}
+            onPress={() => { setActiveFilters([]); setCountryFilter(null); }}
             style={({ pressed }) => [styles.chip, { borderColor: palette.danger }, pressed && { opacity: 0.7 }]}
           >
             <Text style={[styles.chipText, { color: palette.danger }]}>✕ Șterge filtrele</Text>
           </Pressable>
         ) : null}
       </ScrollView>
+
+      {/* Country picker modal */}
+      <CountryPicker
+        visible={countryPickerOpen}
+        onClose={() => setCountryPickerOpen(false)}
+        onPick={setCountryFilter}
+        selected={countryFilter}
+      />
 
       {loading ? (
         <View style={styles.center}><Text style={{ color: palette.textDim }}>Se încarcă…</Text></View>
